@@ -1,74 +1,110 @@
 # NOTES
 
+Preservation port of Amiga Moria Graphics 1.2 (Henrik Harmsen's frontend) plus
+UMoria, to SDL3 on Linux, macOS and the browser. Full brief supplied by the
+owner 2026-09-01. Governing boundary: **Henrik owns presentation, UMoria owns
+gameplay.** No emulation; `amiga.c` is the specification, never compiled.
+
+Build and run instructions live in README.md.
+
 ## Now
 
-Project: preservation port of Amiga Moria Graphics 1.2 (Henrik Harmsen frontend)
-+ UMoria engine → SDL3, native macOS + Emscripten/WASM. Full brief supplied by
-owner 2026-09-01 (22-section spec; see conversation).
+Milestone 1 (asset viewer) through milestone 3 (static Amiga screen) are done
+and verified on Linux, as `amiga-gfx-test`.
 
-Boundary that governs every decision: **Henrik owns presentation, UMoria owns
-gameplay.** No Amiga emulation, no `amiga.c` compiled — it is the spec, not the
-source.
+- [x] Verify the toolchain and SDL's Linux dependencies on this host
+- [x] Vendor SDL3 as a submodule (`vendored/SDL`)
+- [x] `tools/iff_convert.py` — ILBM decoder to PNG and to embeddable RGBA
+- [x] `tools/gen_gfx_corr.py` — extract GFX_CORR from `amiga_corrlist.c`
+- [x] `tools/gen_font.py` — 8x8 font header (placeholder; see below)
+- [x] Narrow display API (`src/frontend/ui.hpp`), no SDL above it
+- [x] SDL3 frontend: 640x200 render target, nearest neighbour, 3.2:1 letterbox
+- [x] `amiga-gfx-test` with title / tiles / dungeon / overview screens
+- [x] Keyboard: arrows and numpad to Moria direction digits, modifiers carried
+- [x] Linux build works without the full X11 -dev set (missing extensions are
+      probed and switched off, with the `apt install` line printed)
+- [x] Tests: GFX_CORR assertions and four headless 640x200 screenshots
+- [ ] Emscripten build — CMake handles `EMSCRIPTEN`, not yet compiled or run
+- [ ] macOS build and `.app` bundle — needs the owner's Mac
+- [ ] Milestone 4 onward: connect the frontend to Umoria
 
-Owner supplied 2026-09-01 (uploads, not yet in-repo — owner must "Add to
-project" before we vendor them):
+### Verified, and how
 
-- `source.zip` → Amiga Moria Graphics **1.1** full C source (UMoria 5.4 base),
-  57 files, incl. `amiga.c`, `amiga.h`, `amiga_corrlist.c`, `amiga_menu.c`,
-  `fastcp.s`, `fastlineclear.s`, `README.amiga` (dated 1992-05-15).
-- `Moria.zip` → **1.2** binary distribution: the three `.iff` atlases, the
-  680K `Moria` executable, `Docs/` (Amiga.doc, New_Features.doc, Update.doc,
-  Moria.doc), `.hlp` files. `news` confirms "Amiga graphics 'Umoria 5.5' V1.2".
+- `ctest --test-dir build-linux` — 5/5 pass (gfx-corr, four screenshots).
+- **The rendered title screen is pixel-identical to `moria_title.iff`.** Zero
+  differing pixels across 640x200 outside the one caption row the test app
+  adds itself. This is the acceptance criterion from the brief, met for the
+  title.
+- The X11 window path and the headless software path produce byte-identical
+  640x200 output (checked under Xvfb), so screenshots taken in CI are the same
+  pixels a player sees.
+- The dungeon screen renders the real tiles on the real geometry: message line
+  at row 0, stat sidebar in columns 0-12, 66x22 viewport from column 13/row 1.
 
-Verified from the uploads:
+### Not verified
 
-- `init_GFX_CORR()` present in full: **231 distinct display codes** explicitly
-  assigned, including the complete extended 128–255 block. Spot checks match
-  the brief exactly — `'@'`=(10,2), `'.'`=(20,1), `'#'`=(13,2).
-- Hallucination hack confirmed at the top of `init_GFX_CORR()`: all 256 entries
-  first seeded with `cx=randint(33)-1`, `cy=randint(7)-1`, then
-  `if ((cx<20) && (cx>13)) cx -= 6;`. Preserve verbatim.
-- Atlas geometry (ILBM BMHD):
-  - `moria_gfx.iff` 320×56, 4 planes, 16 colours, compressed → 40×7 tiles of 8×8
-  - `moria_gfxsmall.iff` 80×14, 4 planes → 40×7 cells of 2×2 (the 1:4 map)
-  - `moria_title.iff` 640×200, 4 planes, page 640×200 — full-screen title
-- Palette: `moria_gfx.iff` CMAP is identical to `ColourTable[16]` in `amiga.c`
-  (0x0DCA → #D0C0A0 etc). One authoritative 16-colour palette:
-  `#000000 #D0C0A0 #804030 #808080 #C08060 #E0B000 #80F050 #008000
-   #004000 #303020 #00A0F0 #000070 #0000F0 #800000 #505050 #F02020`
-- `static UBYTE screen[66][22]` in `amiga.c` confirms the 66×22 viewport.
-- Small map draws at `x_off = 122` (`amiga.c:1094`), 4 bitplanes unrolled.
+- Emscripten: written but not compiled. emsdk is being installed.
+- macOS: no Mac here. The CMake is conventional but unexercised.
+- No display on this host, so the window has never been seen by a human at a
+  real resolution — only Xvfb and the dummy driver.
 
-First implementation target (before touching UMoria at all): standalone
-`amiga-gfx-test` — 1280x400 window, 640x200 render-target framebuffer,
-nearest-neighbour scaling, loads the three atlases, title → Space → fake
-dungeon drawn via GFX_CORR, numpad movement, fullscreen toggle, Esc quits.
+## Historical inputs
+
+Supplied by the owner 2026-09-01 as uploads. They are **not committed**: the
+brief flags that Henrik's artwork needs its own provenance review, and
+uploads are the owner's to add. The build takes paths instead:
+`-DMORIA_HISTORICAL_DIR` and `-DMORIA_ASSET_DIR`.
+
+- `source.zip` — Amiga Moria Graphics **1.1** source (UMoria 5.4 base), 57
+  files including `amiga.c`, `amiga_corrlist.c`, `amiga_menu.c`, `fastcp.s`.
+- `Moria.zip` — **1.2** binary distribution: three `.iff` atlases, the Amiga
+  executable, `Docs/`. `news` reads "Amiga graphics 'Umoria 5.5' V1.2".
+
+Established from them:
+
+- `init_GFX_CORR()` assigns **230 display codes** explicitly, including all
+  128 codes in the extended 128-255 block. (An earlier note said 231; that
+  counted `'i'` and the loop variable `i` as separate keys.)
+- The hallucination hack, preserved verbatim: seed all 256 entries with
+  `cx=randint(33)-1`, `cy=randint(7)-1`, then `if ((cx<20) && (cx>13)) cx -= 6;`
+- `putgfx()` proves the atlas indexing: `GFX_CORR[0][c]` is the tile column and
+  `GFX_CORR[1][c]` the tile row, both in 8-pixel cells.
+- `mvaddchg()` indexes `screen[col-13][row-1]`, fixing the viewport at 66x22
+  with its origin at column 13, row 1.
+- Overview: `x_off = 122`, `y_off = 34`, two pixels per dungeon cell.
+- Atlases: `moria_gfx.iff` 320x56 (40x7 cells of 8x8), `moria_gfxsmall.iff`
+  80x14 (40x7 cells of 2x2), `moria_title.iff` 640x200. All 4-plane, 16-colour.
+- `moria_gfx.iff`'s CMAP is byte-identical to `ColourTable[16]` in `amiga.c`,
+  so tiles and text share one palette. `moria_title.iff` has its own palette,
+  which is why `amiga.c` keeps a separate `ColourTableTitle[16]`.
 
 ## Ideas
 
-- Convert `.iff` → PNG once as a build/tooling step; keep originals under
-  `historical-assets/`. Pixel/palette/geometry identical — container change only.
-  ILBM here is byte-run compressed (`comp=1`), 4 interleaved bitplanes.
-- GFX_CORR as `std::array<Tile,256>`, seeded exactly as above before the 231
-  explicit assignments, so hallucination keeps showing graphics.
-- Pixel regression tests (render deterministic states to 640x200 PNGs) are the
-  real test suite here, not unit tests.
+- The screenshot tests currently only prove the renderer runs. Freeze the
+  four BMPs as golden images once the layout is final.
+- The tile viewer could show which codes are seeded rather than mapped; that
+  is the set hallucination relies on.
 
 ## Questions
 
-1. ~~Do we have `amiga_corrlist.c`?~~ Resolved 2026-09-01 — full table present.
-2. ~~IFF or PNG?~~ Resolved — raw ILBM; we write the converter.
-3. Build/test host: this checkout is Linux (no ninja, no emsdk, no SDL
-   installed; cmake 4.4.3, gcc 13.3). macOS `.app` bundle and Universal build
-   can only be produced on the owner's Mac. Plan is Linux SDL3 + Emscripten
-   here, Mac packaging there — confirm.
-4. Font: still open. `amiga.c` renders text through the Amiga ROM Topaz font,
-   so no glyph data ships in either archive. Either source an open 8x8 Topaz
-   reimplementation, or the owner extracts Topaz from a Kickstart ROM they own
-   (pixel-exact, owner-side).
-5. Which UMoria base — upstream `dungeons-of-moria/umoria` (5.7.x restoration)
-   as the brief says, accepting its deltas from the 5.5 the 1.2 assets target?
-6. Uploads live outside the repo. Owner needs to "Add to project" for
-   `historical-amiga/` and `historical-assets/` to be vendored.
+1. ~~Do we have `amiga_corrlist.c`?~~ Resolved — full table present.
+2. ~~IFF or PNG?~~ Resolved — raw ILBM; `tools/iff_convert.py` handles it.
+3. **Font.** `src/frontend/font8x8.generated.hpp` is currently the IBM VGA 8x8
+   font from this machine's `console-setup` package. Right metrics, wrong
+   glyphs: the Amiga draws text with ROM-resident Topaz, which ships in
+   neither archive. Either point `tools/gen_font.py` at real Topaz data, or
+   extract it from a Kickstart ROM you own. Its licence also needs to join the
+   review below.
+4. **Message colours.** Amiga.doc names them (white normal, red danger, yellow
+   warning, green success, light blue kill, dark red stat loss, blue stat
+   gain) and the palette matches those names cleanly, but the game passes bare
+   integers with no named constants. Only index 1 = Normal is confirmed from
+   source (`io.c` passes 1 for the uncoloured " -more-"). The rest are
+   inferred in `amiga_palette.hpp` and want checking against call sites.
+5. **UMoria base** — upstream `dungeons-of-moria/umoria` 5.7.x restoration, as
+   the brief says, accepting its deltas from the 5.5 the 1.2 assets target?
+6. **Licensing**, before anything is published: Henrik's artwork, the 1.1
+   source, and now the placeholder console font. Building privately is fine;
+   distribution is not covered by Umoria's GPL relicensing.
 
 ## For me

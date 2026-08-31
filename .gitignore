@@ -1,0 +1,8 @@
+build*/
+.openexec/
+
+# Historical inputs are pointed at with -DMORIA_HISTORICAL_DIR / -DMORIA_ASSET_DIR.
+# If you do drop copies in the tree, they stay out of git until their licensing
+# has been reviewed (see NOTES.md).
+historical-amiga/
+historical-assets/
