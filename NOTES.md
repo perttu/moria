@@ -24,29 +24,57 @@ and verified on Linux, as `amiga-gfx-test`.
 - [x] Linux build works without the full X11 -dev set (missing extensions are
       probed and switched off, with the `apt install` line printed)
 - [x] Tests: GFX_CORR assertions and four headless 640x200 screenshots
-- [ ] Emscripten build — CMake handles `EMSCRIPTEN`, not yet compiled or run
+- [x] Emscripten build — compiles to html/js/wasm; never seen running
+- [x] Review round 1: replace exit-code screenshot tests with pixel
+      comparisons; decode ILBM transparency; harden the generators
+- [x] Build-and-start tests: `smoke-start` on every ctest run, plus an opt-in
+      `build-from-clean` that configures and compiles from nothing
 - [ ] macOS build and `.app` bundle — needs the owner's Mac
 - [ ] Milestone 4 onward: connect the frontend to Umoria
 
 ### Verified, and how
 
-- `ctest --test-dir build-linux` — 5/5 pass (gfx-corr, four screenshots).
 - **The rendered title screen is pixel-identical to `moria_title.iff`.** Zero
   differing pixels across 640x200 outside the one caption row the test app
   adds itself. This is the acceptance criterion from the brief, met for the
-  title.
+  title. It is now asserted by `pixel-screens` rather than left as a one-off
+  observation.
 - The X11 window path and the headless software path produce byte-identical
-  640x200 output (checked under Xvfb), so screenshots taken in CI are the same
-  pixels a player sees.
+  640x200 output (observed under Xvfb, and now asserted by the same test).
 - The dungeon screen renders the real tiles on the real geometry: message line
   at row 0, stat sidebar in columns 0-12, 66x22 viewport from column 13/row 1.
+- The three Python tool suites pass: 13 converter tests, 10 font tests, 9
+  extractor tests, including every mutation listed below under "caught by".
+
+- `ctest` is 6/6 on Linux. `tests/golden_screens.json` records screens that
+  were rendered and looked at.
+- Both mutation controls were run and both fail as intended: replacing
+  `show_title()` with a no-op reports 13391 differing title pixels, and
+  changing `kMapColOffset` from 13 to 14 is caught by the cell check
+  ("player '@' is not drawn at column 21, row 9") independently of the golden
+  hash, so regenerating goldens cannot hide a moved viewport.
+- `build-from-clean` passes: `cmake --fresh` into an empty directory,
+  through SDL, to a binary that starts.
 
 ### Not verified
 
-- Emscripten: written but not compiled. emsdk is being installed.
+- Emscripten: compiles to html/js/wasm and rebuilt cleanly after the browser
+  main loop went in, but node has no canvas and headless Firefox timed out
+  with no output. Never observed running.
 - macOS: no Mac here. The CMake is conventional but unexercised.
 - No display on this host, so the window has never been seen by a human at a
   real resolution — only Xvfb and the dummy driver.
+
+### Caught by the tool tests
+
+The mutations below all produce a build that looks fine and renders something
+plausible, which is why they are tested rather than trusted:
+
+- the seed fixup removed, or its comparisons reversed, or `cx -= 6` changed
+- `randint(33)` changed to `randint(32)`
+- an explicit GFX_CORR mapping dropped or altered
+- an 8x16 font substituted for the 8x8 one, or a font truncated by one byte
+- ILBM transparency discarded (both tile atlases are masking mode 2)
 
 ## Historical inputs
 
@@ -80,10 +108,11 @@ Established from them:
 
 ## Ideas
 
-- The screenshot tests currently only prove the renderer runs. Freeze the
-  four BMPs as golden images once the layout is final.
 - The tile viewer could show which codes are seeded rather than mapped; that
   is the set hallucination relies on.
+- `tests/compare_screens.py` names two dungeon cells explicitly. Widening that
+  to every non-blank cell would make a viewport regression impossible to miss,
+  at the cost of a slower test.
 
 ## Questions
 

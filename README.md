@@ -118,10 +118,44 @@ is the hook the pixel regression tests use, and it works over SSH and in CI.
 ctest --test-dir build-linux --output-on-failure
 ```
 
-`gfx-corr` asserts the tile mapping against values transcribed from the 1992
-source. The `screenshot-*` tests render each deterministic screen headlessly.
 For a preservation port these matter more than conventional unit tests: the
 goal is that the pixels do not move.
+
+| test | what it actually checks |
+| --- | --- |
+| `smoke-start` | the binary comes up: `--help` exits zero, a bad argument does not, all four screens render at 640×200, `--scale 3` leaves the virtual screen alone, and it starts against a real X server rather than only the dummy driver |
+| `gfx-corr` | the tile mapping, the extended codes above 127, and the seed parameters, against values transcribed from the 1992 source |
+| `pixel-screens` | the rendered title against `moria_title.iff` itself; named dungeon cells against the atlas tile that belongs at that screen position; each whole screen against a reviewed golden hash; the X11 render against the headless one |
+| `tool-iff-convert` | ILBM masking modes 0, 1 and 2 survive conversion into both output formats |
+| `tool-gen-font` | non-8x8 and truncated fonts are refused rather than cropped or misaligned |
+| `tool-gen-gfx-corr` | mutations of the historical source — a removed seed fixup, a changed `randint` range, a dropped mapping — are caught |
+
+The golden hashes in `tests/golden_screens.json` are a record of screens
+somebody looked at, so they are not regenerated automatically. After a
+deliberate visual change:
+
+```bash
+cmake --build build-linux --target update-screen-goldens
+```
+
+then review the BMPs in `build-linux/screens/` before committing the new
+hashes.
+
+`smoke-start` uses an already-built binary. To check that a clean tree
+configures and compiles from nothing — it rebuilds SDL, so it is off by
+default:
+
+```bash
+cmake -S . -B build-linux -DMORIA_TEST_CLEAN_BUILD=ON ...
+ctest --test-dir build-linux -R build-from-clean
+```
+
+or directly, without CMake:
+
+```bash
+python3 tests/build_and_start.py --source . \
+    --historical /path/to/1.1/source --assets /path/to/1.2/Moria
+```
 
 ## Layout
 

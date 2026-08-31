@@ -23,6 +23,7 @@ struct Args {
     int scale = 2;
     bool fullscreen = false;
     bool headless = false;
+    bool help = false;
     std::string screenshot;
 };
 
@@ -63,8 +64,10 @@ bool parse_args(int argc, char **argv, Args *out) {
         } else if (arg == "--headless") {
             out->headless = true;
         } else if (arg == "--help" || arg == "-h") {
+            // Asking for help is not a usage error: print it and exit zero.
             std::fputs(kUsage, stdout);
-            return false;
+            out->help = true;
+            return true;
         } else {
             std::fprintf(stderr, "unknown option '%s'\n\n%s", arg.c_str(), kUsage);
             return false;
@@ -340,6 +343,9 @@ int main(int argc, char **argv) {
     Args args;
     if (!parse_args(argc, argv, &args)) {
         return 1;
+    }
+    if (args.help) {
+        return 0;
     }
 
     moria::ui::Options options;

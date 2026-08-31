@@ -7,6 +7,7 @@
 #include <cstdlib>
 
 #include "amiga_tiles.hpp"
+#include "amiga_tiles_table.generated.hpp"
 
 namespace {
 
@@ -77,6 +78,37 @@ int main() {
 
     expect("explicit_count() agrees with the extracted table",
            moria::gfx::explicit_count() == 230);
+
+    // The seeding parameters are as load-bearing as the mappings. If the
+    // extractor ever failed to find them and fell back to something
+    // harmless-looking, hallucination would draw from a different part of
+    // the atlas and no rendered screen would look wrong enough to notice.
+    expect("seed range for cx is randint(33)", moria::gfx::kSeedXRange == 33);
+    expect("seed range for cy is randint(7)", moria::gfx::kSeedYRange == 7);
+    expect("seed fixup is (cx > 13 && cx < 20) -> cx -= 6",
+           moria::gfx::kSeedFixupLow == 13 && moria::gfx::kSeedFixupHigh == 20
+               && moria::gfx::kSeedFixupSubtract == 6);
+
+    // The fixup's observable consequence: no seeded entry may land in the
+    // 14..19 column band. Explicit mappings are free to. Checking the
+    // consequence rather than a literal tile keeps this independent of which
+    // random engine the standard library provides.
+    bool band_clear = true;
+    for (std::uint32_t seed = 0; seed < 32; ++seed) {
+        const std::array<moria::gfx::Tile, 256> table = moria::gfx::build_table(seed);
+        for (int code = 0; code <= 255; ++code) {
+            if (moria::gfx::is_explicit(static_cast<std::uint8_t>(code))) {
+                continue;
+            }
+            const int x = table[code].x;
+            if (x > moria::gfx::kSeedFixupLow && x < moria::gfx::kSeedFixupHigh) {
+                std::printf("     seed %u, code %d seeded into the fixed-up "
+                            "band at x=%d\n", seed, code, x);
+                band_clear = false;
+            }
+        }
+    }
+    expect("seeded entries never land in the band the fixup clears", band_clear);
 
     if (g_failures != 0) {
         std::printf("\n%d failure(s)\n", g_failures);

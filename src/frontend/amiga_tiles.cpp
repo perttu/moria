@@ -8,9 +8,20 @@
 namespace moria::gfx {
 namespace {
 
-std::bitset<256> g_explicit;
+const std::bitset<256> &explicit_codes() {
+    static const std::bitset<256> codes = [] {
+        std::bitset<256> set;
+        for (const auto &e : kGfxCorr) {
+            set.set(e.code);
+        }
+        return set;
+    }();
+    return codes;
+}
 
-std::array<Tile, 256> build(std::uint32_t seed) {
+}  // namespace
+
+std::array<Tile, 256> build_table(std::uint32_t seed) {
     std::array<Tile, 256> table{};
 
     // init_GFX_CORR() opens by scattering every entry across the atlas:
@@ -37,20 +48,12 @@ std::array<Tile, 256> build(std::uint32_t seed) {
 
     for (const auto &e : kGfxCorr) {
         table[e.code] = {e.x, e.y};
-        g_explicit.set(e.code);
     }
     return table;
 }
 
-}  // namespace
-
-const std::array<Tile, 256> &tiles(std::uint32_t seed) {
-    static std::uint32_t built_seed = seed;
-    static std::array<Tile, 256> table = build(seed);
-    if (seed != built_seed) {
-        built_seed = seed;
-        table = build(seed);
-    }
+const std::array<Tile, 256> &tiles() {
+    static const std::array<Tile, 256> table = build_table(0);
     return table;
 }
 
@@ -59,8 +62,7 @@ Tile tile_for(std::uint8_t display_code) {
 }
 
 bool is_explicit(std::uint8_t display_code) {
-    (void)tiles();  // ensure the table, and therefore the flags, exist
-    return g_explicit.test(display_code);
+    return explicit_codes().test(display_code);
 }
 
 int explicit_count() {

@@ -348,11 +348,22 @@ bool save_screenshot(const char *path) {
         SDL_Log("could not read the framebuffer: %s", SDL_GetError());
         return false;
     }
-    const bool ok = SDL_SaveBMP(shot, path);
+
+    // Normalise to plain 24-bit RGB before saving. The renderer's native
+    // format varies by backend, and a BMP whose layout depends on which
+    // driver happened to be in use is no use to a pixel comparison.
+    SDL_Surface *rgb = SDL_ConvertSurface(shot, SDL_PIXELFORMAT_RGB24);
+    SDL_DestroySurface(shot);
+    if (rgb == nullptr) {
+        SDL_Log("could not convert the framebuffer to RGB24: %s", SDL_GetError());
+        return false;
+    }
+
+    const bool ok = SDL_SaveBMP(rgb, path);
     if (!ok) {
         SDL_Log("could not write %s: %s", path, SDL_GetError());
     }
-    SDL_DestroySurface(shot);
+    SDL_DestroySurface(rgb);
     return ok;
 }
 

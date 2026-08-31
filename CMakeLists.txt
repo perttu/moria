@@ -42,17 +42,36 @@ set(MORIA_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${MORIA_GENERATED_DIR}")
 
 # GFX_CORR, transcribed mechanically from the original C rather than by hand.
+#
+# The --expect-* values are the ones Amiga Moria Graphics 1.1 carries. They
+# are asserted here, during generation, rather than only in the test suite, so
+# that a substituted or edited source is caught even in a build configured
+# with BUILD_TESTING=OFF.
+set(MORIA_GFX_CORR_EXPECTATIONS
+    --expect-explicit 230
+    --expect-extended 128
+    --expect-seed 33 7
+    --expect-fixup 13 20 6
+    --expect-atlas 40 7)
+
 add_custom_command(
     OUTPUT "${MORIA_GENERATED_DIR}/amiga_tiles_table.generated.hpp"
     COMMAND "${Python3_EXECUTABLE}"
             "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_gfx_corr.py"
             "${MORIA_CORRLIST}"
             --hpp "${MORIA_GENERATED_DIR}/amiga_tiles_table.generated.hpp"
+            ${MORIA_GFX_CORR_EXPECTATIONS}
     DEPENDS "${MORIA_CORRLIST}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_gfx_corr.py"
     COMMENT "Extracting GFX_CORR from amiga_corrlist.c"
     VERBATIM)
 
 # The artwork, embedded as RGBA arrays so the binaries carry no loose files.
+#
+# --opaque because putgfx() in amiga.c copies all four bitplanes without
+# consulting the mask: on the Amiga a tile's colour 0 is drawn as black, not
+# as a hole. The converter still decodes the masking the files declare -- both
+# atlases are mode 2 with transparentColor 0 -- it is the renderer that
+# reproduces the original's indifference to it.
 set(MORIA_ASSET_SOURCES "")
 foreach(asset moria_gfx moria_gfxsmall moria_title)
     add_custom_command(
@@ -62,6 +81,7 @@ foreach(asset moria_gfx moria_gfxsmall moria_title)
                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/iff_convert.py"
                 "${MORIA_ASSET_DIR}/${asset}.iff"
                 --name "${asset}"
+                --opaque
                 --cpp "${MORIA_GENERATED_DIR}/${asset}.generated.cpp"
                 --hpp "${MORIA_GENERATED_DIR}/${asset}.generated.hpp"
         DEPENDS "${MORIA_ASSET_DIR}/${asset}.iff"
@@ -85,48 +105,99 @@ set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
 set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(SDL_INSTALL OFF CACHE BOOL "" FORCE)
 
-# On Linux, SDL treats a missing optional X11 extension as a hard configure
-# error. Rather than making everyone install the full desktop -dev set before
-# they can build at all, switch off what is genuinely absent and say so. A
-# machine with the packages installed still gets the full-featured build.
+# On Linux, SDL treats a missing optional backend dependency as a hard
+# configure error. Rather than making everyone install the full desktop -dev
+# set before they can build at all, switch off what is genuinely absent and
+# say so.
+#
+# Every probe re-runs on every configure, and anything switched off here is
+# remembered in MORIA_AUTO_DISABLED_SDL so it can be handed back to SDL once
+# its dependency appears. Without that, following the printed apt line and
+# reconfiguring the same build directory would leave the cached OFF in place
+# and quietly deny the full build it just promised. Options the user set
+# themselves are never touched.
 if(UNIX AND NOT APPLE AND NOT EMSCRIPTEN)
     find_package(PkgConfig QUIET)
-    set(MORIA_MISSING_X11 "")
-    if(PkgConfig_FOUND)
-        # SDL option <-> pkg-config module <-> Debian/Ubuntu package
-        set(_moria_x11_deps
-            "SDL_X11_XCURSOR:xcursor:libxcursor-dev"
-            "SDL_X11_XFIXES:xfixes:libxfixes-dev"
-            "SDL_X11_XINPUT:xi:libxi-dev"
-            "SDL_X11_XRANDR:xrandr:libxrandr-dev"
-            "SDL_X11_XSCRNSAVER:xscrnsaver:libxss-dev"
-            "SDL_X11_XTEST:xtst:libxtst-dev"
-            "SDL_X11_XDBE:xext:libxext-dev"
-            "SDL_X11_XSHAPE:xext:libxext-dev"
-            "SDL_X11_XSYNC:xext:libxext-dev")
-        foreach(_dep IN LISTS _moria_x11_deps)
-            string(REPLACE ":" ";" _parts "${_dep}")
-            list(GET _parts 0 _option)
-            list(GET _parts 1 _module)
-            list(GET _parts 2 _package)
-            pkg_check_modules(_moria_probe QUIET "${_module}")
-            if(NOT _moria_probe_FOUND)
-                set(${_option} OFF CACHE BOOL "" FORCE)
-                list(APPEND MORIA_MISSING_X11 "${_package}")
-            endif()
-        endforeach()
-
-        pkg_check_modules(_moria_wayland QUIET wayland-client)
-        if(NOT _moria_wayland_FOUND)
-            set(SDL_WAYLAND OFF CACHE BOOL "" FORCE)
-        endif()
+    if(NOT PkgConfig_FOUND)
+        message(STATUS
+            "SDL: pkg-config was not found, so optional backends are detected "
+            "by looking for their headers instead.")
     endif()
 
-    if(MORIA_MISSING_X11)
-        list(JOIN MORIA_MISSING_X11 " " _moria_missing_text)
+    # SDL option | pkg-config module | header | Debian/Ubuntu package
+    set(_moria_optional_deps
+        "SDL_X11_XCURSOR|xcursor|X11/Xcursor/Xcursor.h|libxcursor-dev"
+        "SDL_X11_XFIXES|xfixes|X11/extensions/Xfixes.h|libxfixes-dev"
+        "SDL_X11_XINPUT|xi|X11/extensions/XInput2.h|libxi-dev"
+        "SDL_X11_XRANDR|xrandr|X11/extensions/Xrandr.h|libxrandr-dev"
+        "SDL_X11_XSCRNSAVER|xscrnsaver|X11/extensions/scrnsaver.h|libxss-dev"
+        "SDL_X11_XTEST|xtst|X11/extensions/XTest.h|libxtst-dev"
+        "SDL_X11_XDBE|xext|X11/extensions/Xdbe.h|libxext-dev"
+        "SDL_X11_XSHAPE|xext|X11/extensions/shape.h|libxext-dev"
+        "SDL_X11_XSYNC|xext|X11/extensions/sync.h|libxext-dev"
+        "SDL_WAYLAND|wayland-client|wayland-client.h|libwayland-dev")
+
+    set(_moria_disabled_now "")
+    set(_moria_missing_packages "")
+    set(_moria_restored "")
+
+    foreach(_dep IN LISTS _moria_optional_deps)
+        string(REPLACE "|" ";" _parts "${_dep}")
+        list(GET _parts 0 _option)
+        list(GET _parts 1 _module)
+        list(GET _parts 2 _header)
+        list(GET _parts 3 _package)
+
+        list(FIND MORIA_AUTO_DISABLED_SDL "${_option}" _managed)
+        if(_managed EQUAL -1 AND DEFINED CACHE{${_option}})
+            continue()  # the user chose this one; leave it alone
+        endif()
+
+        # Force a fresh probe: both of these cache their results.
+        unset(_moria_probe_FOUND CACHE)
+        unset(_moria_probe_FOUND)
+        unset(_moria_probe_header CACHE)
+
+        set(_moria_available FALSE)
+        if(PkgConfig_FOUND)
+            pkg_check_modules(_moria_probe QUIET "${_module}")
+            if(_moria_probe_FOUND)
+                set(_moria_available TRUE)
+            endif()
+        else()
+            find_path(_moria_probe_header "${_header}")
+            if(_moria_probe_header)
+                set(_moria_available TRUE)
+            endif()
+        endif()
+
+        if(_moria_available)
+            if(NOT _managed EQUAL -1)
+                # It was ours and its dependency is back: drop our cache entry
+                # so SDL applies its own default again.
+                unset(${_option} CACHE)
+                list(APPEND _moria_restored "${_option}")
+            endif()
+        else()
+            set(${_option} OFF CACHE BOOL "" FORCE)
+            list(APPEND _moria_disabled_now "${_option}")
+            list(APPEND _moria_missing_packages "${_package}")
+        endif()
+    endforeach()
+
+    set(MORIA_AUTO_DISABLED_SDL "${_moria_disabled_now}" CACHE INTERNAL
+        "SDL options this project switched off because their dependency was missing")
+
+    if(_moria_restored)
+        list(JOIN _moria_restored " " _moria_restored_text)
+        message(STATUS "SDL: dependencies reappeared, re-enabling ${_moria_restored_text}")
+    endif()
+    if(_moria_missing_packages)
+        list(REMOVE_DUPLICATES _moria_missing_packages)
+        list(JOIN _moria_missing_packages " " _moria_missing_text)
         message(STATUS
-            "SDL: building without some X11 extensions. For the full desktop "
-            "build install: sudo apt install ${_moria_missing_text}")
+            "SDL: building without some optional backends. For the full "
+            "desktop build install: sudo apt install ${_moria_missing_text}")
     endif()
 endif()
 
@@ -193,16 +264,66 @@ if(BUILD_TESTING)
     target_link_libraries(gfx-corr-test PRIVATE moria-tiles)
     add_test(NAME gfx-corr COMMAND gfx-corr-test)
 
-    add_test(NAME screenshot-title
-             COMMAND amiga-gfx-test --headless --screen title
-                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shot-title.bmp")
-    add_test(NAME screenshot-tiles
-             COMMAND amiga-gfx-test --headless --screen tiles
-                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shot-tiles.bmp")
-    add_test(NAME screenshot-dungeon
-             COMMAND amiga-gfx-test --headless --screen dungeon
-                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shot-dungeon.bmp")
-    add_test(NAME screenshot-overview
-             COMMAND amiga-gfx-test --headless --screen overview
-                     --screenshot "${CMAKE_CURRENT_BINARY_DIR}/shot-overview.bmp")
+    # Pixels, not exit codes. This renders every deterministic screen and
+    # compares it: the title against moria_title.iff itself, specific dungeon
+    # cells against the atlas tile that belongs at that screen position, and
+    # each whole screen against a reviewed golden hash.
+    add_test(NAME pixel-screens
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_screens.py"
+                     --binary "$<TARGET_FILE:amiga-gfx-test>"
+                     --assets "${MORIA_ASSET_DIR}"
+                     --workdir "${CMAKE_CURRENT_BINARY_DIR}/screens"
+                     --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json")
+
+    # The goldens are deliberately not generated automatically: they are a
+    # record of screens somebody looked at. Regenerate with
+    #     cmake --build <dir> --target update-screen-goldens
+    # and review the rendered BMPs in <dir>/screens before committing.
+    add_custom_target(update-screen-goldens
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/compare_screens.py"
+                --binary "$<TARGET_FILE:amiga-gfx-test>"
+                --assets "${MORIA_ASSET_DIR}"
+                --workdir "${CMAKE_CURRENT_BINARY_DIR}/screens"
+                --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json"
+                --update
+        DEPENDS amiga-gfx-test
+        COMMENT "Rendering the deterministic screens and rewriting the goldens"
+        VERBATIM)
+
+    # Does it come up at all? Cheap, and it catches the failures the pixel
+    # tests never see: a binary that will not start, an argument that is
+    # silently accepted, a window that opens at the wrong size, or a build
+    # that only works against the dummy video driver.
+    add_test(NAME smoke-start
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_and_start.py"
+                     --binary "$<TARGET_FILE:amiga-gfx-test>"
+                     --assets "${MORIA_ASSET_DIR}")
+
+    # The same checks starting from cmake --fresh. Off by default because it
+    # rebuilds SDL from scratch; turn it on in CI or before a release.
+    option(MORIA_TEST_CLEAN_BUILD
+           "Add a test that configures and builds the project from scratch" OFF)
+    if(MORIA_TEST_CLEAN_BUILD)
+        add_test(NAME build-from-clean
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/build_and_start.py"
+                         --source "${CMAKE_CURRENT_SOURCE_DIR}"
+                         --historical "${MORIA_HISTORICAL_DIR}"
+                         --assets "${MORIA_ASSET_DIR}")
+        set_tests_properties(build-from-clean PROPERTIES TIMEOUT 1800)
+    endif()
+
+    add_test(NAME tool-iff-convert
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_iff_convert.py")
+    add_test(NAME tool-gen-font
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gen_font.py")
+    add_test(NAME tool-gen-gfx-corr
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gen_gfx_corr.py"
+                     --corrlist "${MORIA_CORRLIST}")
 endif()

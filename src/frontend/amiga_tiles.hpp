@@ -23,7 +23,11 @@ struct Tile {
 // preserved rather than tidied away. `seed` selects the random sequence; the
 // original drew from Moria's own generator, so any sequence is faithful in
 // behaviour, and a fixed seed keeps screenshot tests reproducible.
-const std::array<Tile, 256> &tiles(std::uint32_t seed = 0);
+std::array<Tile, 256> build_table(std::uint32_t seed);
+
+// The table the renderer uses. Built once, from a fixed seed, so that a
+// screenshot of the same game state is the same image every time.
+const std::array<Tile, 256> &tiles();
 
 // The atlas cell for one display code.
 Tile tile_for(std::uint8_t display_code);
