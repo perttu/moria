@@ -9,37 +9,34 @@ Build and run instructions live in README.md.
 
 ## Where this actually is
 
-**Milestones 1-3 of 14. There is no game here yet.**
-
-The brief's first implementation target is finished: `amiga-gfx-test`, the
-frontend proved out against the real artwork with nothing behind it. That
-answers "can we reproduce Henrik's frontend?" — yes, on Linux and in the
-browser. It does not touch the second question, "can Umoria drive that
-frontend?", because **no Umoria is vendored in this repository at all.**
-
-Everything the game does — walking, monsters, items, stores, saving — is
-absent. The dungeon on screen is a hard-coded stand-in in
-`src/tools/gfx_test_main.cpp`, and the stats beside it are invented strings.
+**Both of the brief's hard questions are now answered yes.** Umoria 5.7.15
+runs on Henrik's frontend: character creation, the town, real tiles, real
+messages, real commands. What is missing is everything cosmetic that made the
+Amiga version distinctive, plus saving and the browser build of the game.
 
 | # | milestone | state |
 | --- | --- | --- |
 | 1 | asset viewer | done |
 | 2 | tile atlas viewer | done |
 | 3 | static Amiga screen | done |
-| 4 | keyboard frontend | keys map to Moria codes, but into the stand-in |
-| 5 | playable town | not started |
-| 6 | playable dungeon | not started |
+| 4 | keyboard frontend | done — real keys into the real engine |
+| 5 | playable town | town renders and responds to commands; not played through |
+| 6 | playable dungeon | same code path, not yet reached in a test |
 | 7 | special graphics | table extracted; nothing assigns codes to monsters |
-| 8 | overview map | draws a fake level |
-| 9 | full Amiga UI | fake stats, no message system |
-| 10 | save/load | not started |
+| 8 | overview map | frontend can draw it; Umoria's map command not routed to it |
+| 9 | full Amiga UI | **monochrome** — every cell is Color::Normal |
+| 10 | save/load | untested |
 | 11 | macOS .app | blocked: no Mac here |
-| 12 | Emscripten | done, verified in headless Chrome |
+| 12 | Emscripten | `amiga-gfx-test` only; the game still blocks on input |
 | 13 | IndexedDB saves | not started |
-| 14 | pixel regression tests | done |
+| 14 | pixel regression tests | done, including the real game's screens |
 
-Milestones 5-10 and 13 all wait on the same thing: an engine wired to
-`ui.hpp`.
+Two things to be clear about. **Nothing is coloured yet**: Henrik's semantic
+message and stat colours are the single most visible difference from the
+original, and the shim currently writes everything as `Color::Normal`. And the
+**browser build is still `amiga-gfx-test` only** — Umoria reads keys from deep
+inside its call stack, which a browser cannot be kept waiting through, so
+`moria-amiga` is native-only until that is inverted or Asyncify is turned on.
 
 ### Done so far
 
@@ -52,12 +49,17 @@ Milestones 5-10 and 13 all wait on the same thing: an engine wired to
 
 ### Next
 
-- [ ] Vendor modern Umoria (the brief names `dungeons-of-moria/umoria`)
-- [ ] Survey its display layer and map every terminal operation onto `ui.hpp`
-- [ ] Milestone 4: real keys into the real engine
-- [ ] Milestones 5-6: playable town, then dungeon
+- [ ] Milestone 9: colour. Drive `engine::setColour()` from Umoria's call
+      sites — messages by severity, stats by status and HP/mana percentage.
+      This is the biggest visible gap.
 - [ ] Milestone 7: assign Henrik's extended display codes at the presentation
       layer, from monster identity — never by touching monster data
+- [ ] Milestone 8: route Umoria's map command to `ui::overview_tile` and the
+      small atlas
+- [ ] Milestone 6: play down to a dungeon level in a test
+- [ ] Milestone 10: save, quit, reload
+- [ ] Milestone 12/13: Asyncify the engine build for the browser, then
+      IndexedDB saves
 - [ ] macOS build and `.app` bundle — needs the owner's Mac
 
 ### Verified, and how
@@ -115,7 +117,22 @@ plausible, which is why they are tested rather than trusted:
 `vendored/umoria` is upstream `dungeons-of-moria/umoria` at **5.7.15**, as the
 brief specifies. Vendored 2026-09-01, not yet built or wired to anything.
 
-Survey of what connecting it involves:
+**How it is connected.** Umoria's sources are compiled straight out of the
+submodule, minus two files. `src/engine/main.cpp` replaces its `main()` so the
+frontend options are in place before `initscr()`. And `ui_io.cpp` — the only
+file in Umoria that talks to a terminal — is copied at build time with three
+exact substitutions by `tools/patch_ui_io.py`: the curses include becomes the
+shim in `src/engine/amiga_curses.hpp`, `panelPutTile()` routes to the tile
+atlas, and the `select(2)` key poll becomes an SDL poll. Every substitution
+must match exactly or the build fails loudly. **No gameplay source is
+modified**, and Umoria's own terminal logic — message combining, the
+"-more-" prompt, line editing — is upstream's, unchanged.
+
+The shim is curses-shaped on purpose: `move`, `addch`, `clrtoeol` and about
+twenty more, over an 80x25 grid of cells that each know whether they hold a
+font glyph or a dungeon tile. `refresh()` walks the grid and draws it.
+
+Original survey, which is why it went this smoothly:
 
 - **The terminal seam is narrow and already isolated.** Curses appears in only
   three files: `src/ui_io.cpp`, `src/curses.h`, and one use in

@@ -238,6 +238,80 @@ target_include_directories(moria-tiles PUBLIC
 add_executable(amiga-gfx-test src/tools/gfx_test_main.cpp)
 target_link_libraries(amiga-gfx-test PRIVATE moria-frontend)
 
+# ---------------------------------------------------------------------------
+# moria-amiga: Umoria driving the Amiga frontend
+#
+# Umoria is vendored untouched. Its terminal layer is the only file that talks
+# to curses, and it is retargeted by three exact substitutions at build time
+# (see tools/patch_ui_io.py) rather than forked, so all of its own logic --
+# message combining, the "-more-" prompt, line editing -- stays upstream's.
+# No gameplay source is modified. Henrik owns presentation, UMoria owns
+# gameplay.
+# ---------------------------------------------------------------------------
+set(MORIA_UMORIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendored/umoria")
+
+if(EMSCRIPTEN)
+    # Umoria reads keys from deep inside its call stack, and a browser cannot
+    # be kept waiting there. Getting the game into the browser needs Asyncify
+    # (or an inverted main loop); until then only amiga-gfx-test is built for
+    # the web, which is what web-smoke exercises.
+    message(STATUS
+        "Skipping moria-amiga for Emscripten: its input loop still blocks. "
+        "amiga-gfx-test is the browser target for now.")
+elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
+    file(GLOB MORIA_UMORIA_SOURCES CONFIGURE_DEPENDS "${MORIA_UMORIA_DIR}/src/*.cpp")
+    list(REMOVE_ITEM MORIA_UMORIA_SOURCES
+        "${MORIA_UMORIA_DIR}/src/main.cpp"     # replaced by src/engine/main.cpp
+        "${MORIA_UMORIA_DIR}/src/ui_io.cpp")   # replaced by the patched copy
+
+    add_custom_command(
+        OUTPUT "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_ui_io.py"
+                "${MORIA_UMORIA_DIR}/src/ui_io.cpp"
+                --out "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+        DEPENDS "${MORIA_UMORIA_DIR}/src/ui_io.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_ui_io.py"
+        COMMENT "Retargeting Umoria's terminal layer at the Amiga frontend"
+        VERBATIM)
+
+    add_executable(moria-amiga
+        ${MORIA_UMORIA_SOURCES}
+        "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+        src/engine/amiga_curses.cpp
+        src/engine/main.cpp)
+
+    target_include_directories(moria-amiga PRIVATE
+        "${MORIA_UMORIA_DIR}/src"
+        src/engine)
+
+    target_link_libraries(moria-amiga PRIVATE moria-frontend)
+
+    # Umoria's own warning suppressions; its 1980s string handling trips
+    # modern GCC otherwise.
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+        target_compile_options(moria-amiga PRIVATE
+            -Wno-format-overflow -Wno-format-truncation)
+    endif()
+
+    # Umoria looks for these relative to the working directory.
+    file(COPY
+        "${MORIA_UMORIA_DIR}/data/help.txt"
+        "${MORIA_UMORIA_DIR}/data/help_wizard.txt"
+        "${MORIA_UMORIA_DIR}/data/rl_help.txt"
+        "${MORIA_UMORIA_DIR}/data/rl_help_wizard.txt"
+        "${MORIA_UMORIA_DIR}/data/welcome.txt"
+        "${MORIA_UMORIA_DIR}/data/death_tomb.txt"
+        "${MORIA_UMORIA_DIR}/data/death_royal.txt"
+        DESTINATION "${CMAKE_CURRENT_BINARY_DIR}/data")
+    file(COPY "${MORIA_UMORIA_DIR}/data/scores.dat"
+        DESTINATION "${CMAKE_CURRENT_BINARY_DIR}")
+else()
+    message(STATUS
+        "vendored/umoria is empty; building the frontend only. "
+        "Run: git submodule update --init --depth 1")
+endif()
+
 if(EMSCRIPTEN)
     set(CMAKE_EXECUTABLE_SUFFIX ".html")
     set_target_properties(amiga-gfx-test PROPERTIES SUFFIX ".html")
@@ -331,6 +405,33 @@ if(BUILD_TESTING)
                          --assets "${MORIA_ASSET_DIR}"
                          --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json")
         set_tests_properties(web-smoke PROPERTIES TIMEOUT 600)
+    endif()
+
+    # Umoria actually driving the frontend: the real game is run through
+    # character creation into the town with a fixed seed, and the screen it
+    # produces is checked -- including that every drawn cell of the viewport
+    # is a tile from the atlas rather than a character from the font.
+    if(TARGET moria-amiga)
+        add_test(NAME game-screens
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/game_screens.py"
+                         --binary "$<TARGET_FILE:moria-amiga>"
+                         --assets "${MORIA_ASSET_DIR}"
+                         --workdir "${CMAKE_CURRENT_BINARY_DIR}/game-screens"
+                         --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_game_screens.json")
+        set_tests_properties(game-screens PROPERTIES TIMEOUT 300)
+
+        add_custom_target(update-game-goldens
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tests/game_screens.py"
+                    --binary "$<TARGET_FILE:moria-amiga>"
+                    --assets "${MORIA_ASSET_DIR}"
+                    --workdir "${CMAKE_CURRENT_BINARY_DIR}/game-screens"
+                    --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_game_screens.json"
+                    --update
+            DEPENDS moria-amiga
+            COMMENT "Rendering the real game's screens and rewriting the goldens"
+            VERBATIM)
     endif()
 
     add_test(NAME tool-iff-convert
