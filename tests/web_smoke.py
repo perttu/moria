@@ -36,7 +36,8 @@ sys.path.insert(0, HERE)
 sys.path.insert(0, TOOLS)
 
 import iff_convert  # noqa: E402
-from compare_screens import SCREEN_WIDTH, SCREEN_HEIGHT, CELL, TITLE_CAPTION_ROW  # noqa: E402
+from compare_screens import (SCREEN_WIDTH, SCREEN_HEIGHT, CELL,  # noqa: E402
+                             MAP_COL_OFFSET, TITLE_CAPTION_ROW)
 
 HARNESS = os.path.join(HERE, "web", "harness.html")
 
@@ -86,7 +87,7 @@ def serve(directory):
     return httpd, httpd.server_address[1]
 
 
-def screenshot(chrome, url, out_path, window):
+def screenshot(chrome, url, out_path, window, profile=None):
     command = [
         chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
         "--enable-unsafe-swiftshader", "--hide-scrollbars",
@@ -95,6 +96,10 @@ def screenshot(chrome, url, out_path, window):
         "--virtual-time-budget=20000",
         "--screenshot=%s" % out_path, url,
     ]
+    if profile is not None:
+        # IndexedDB lives in the profile, so two runs that must share a save
+        # have to share one.
+        command.insert(1, "--user-data-dir=%s" % profile)
     result = subprocess.run(command, capture_output=True, text=True, timeout=180)
     if not os.path.exists(out_path):
         raise Failure("Chrome wrote no screenshot for %s\n%s"
@@ -148,15 +153,67 @@ def check_title(pixels, size, assets_dir, report):
     report("ok   the browser draws the title pixel-identically to moria_title.iff")
 
 
+def check_indexeddb_saves(chrome, port, workdir, report):
+    """Save in one page load, and find the save still there in the next.
+
+    Emscripten's filesystem is memory only, so without IDBFS a save would be
+    gone the moment the tab closed. Both runs share a browser profile because
+    that is where IndexedDB lives.
+    """
+    # KNOWN FAILURE: the run below hangs. Umoria's exitProgram() calls exit(0)
+    # straight after terminalRestore(), and exit() from inside a stack that
+    # Asyncify has unwound does not return control to the browser. The save is
+    # written to the in-memory filesystem first, but the page freezes before
+    # IndexedDB can be flushed. Left in, and off by default, because it
+    # describes exactly what has to be fixed.
+    profile = os.path.join(workdir, "profile")
+    base = "http://127.0.0.1:%d/harness.html?app=moria-amiga&args=" % port
+
+    # Create a character, walk into the town, then ^X to save and quit.
+    keys = "am\\eaFenwick\\n \\cX "
+    saving = screenshot(chrome,
+                        base + "--scale,1,-n,-s,12345,--keys," + keys,
+                        os.path.join(workdir, "web-saving.png"),
+                        (SCREEN_WIDTH, SCREEN_HEIGHT), profile=profile)
+    _size, _pixels = load_png(saving)
+    report("ok   the browser build saved and exited")
+
+    # A second page load, same profile: no -n, so it must find the save.
+    loaded = screenshot(chrome, base + "--scale,1,-s,12345",
+                        os.path.join(workdir, "web-loaded.png"),
+                        (SCREEN_WIDTH, SCREEN_HEIGHT), profile=profile)
+    size, pixels = load_png(loaded)
+    if size != (SCREEN_WIDTH, SCREEN_HEIGHT):
+        raise Failure("the reloaded page rendered %dx%d" % size)
+    if all(pixel == (0, 0, 0) for pixel in pixels):
+        raise Failure("the reloaded page is blank")
+
+    # A game that failed to find its save starts character creation, which
+    # asks for a race on the bottom rows. A restored game shows the town.
+    restored_rows = {y for y in range(SCREEN_HEIGHT)
+                     if any(pixels[y * SCREEN_WIDTH + x] != (0, 0, 0)
+                            for x in range(MAP_COL_OFFSET * CELL, SCREEN_WIDTH))}
+    if not restored_rows:
+        raise Failure("the reloaded page drew nothing in the map area, so the "
+                      "save was not restored")
+    report("ok   the save survived the page reload through IndexedDB")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build-web", required=True, help="the Emscripten build directory")
     ap.add_argument("--assets", required=True, help="directory holding the .iff files")
     ap.add_argument("--chrome", help="path to a Chrome or Chromium binary")
-    ap.add_argument("--golden", help="golden hashes from the native build, to "
-                                     "check the browser renders the same pixels")
+    ap.add_argument("--golden", help="golden hashes for amiga-gfx-test's screens, "
+                                     "to check the browser renders the same pixels")
+    ap.add_argument("--game-golden", help="golden hashes for the real game's "
+                                          "screens, for the browser game build")
     ap.add_argument("--keep", action="store_true", help="keep the rendered PNGs")
+    ap.add_argument("--check-saves", action="store_true",
+                    help="also check that a save survives a page reload. Off "
+                         "by default: saving in the browser currently hangs "
+                         "the tab (see NOTES.md), so this does not pass yet.")
     args = ap.parse_args(argv)
 
     lines = []
@@ -220,6 +277,39 @@ def main(argv=None):
                             % (golden["dungeon"][:16], got[:16]))
                     report("ok   the browser's dungeon screen is byte-identical "
                            "to the native render")
+
+            # The game itself, if it was built for the browser. Umoria reads
+            # keys from deep inside its call stack; Asyncify is what lets that
+            # happen without freezing the tab.
+            game = os.path.join(args.build_web, "moria-amiga.js")
+            if (os.path.exists(game) and args.game_golden
+                    and os.path.exists(args.game_golden)):
+                with open(args.game_golden) as fh:
+                    golden = json.load(fh)
+                game_url = ("http://127.0.0.1:%d/harness.html?app=moria-amiga"
+                            "&args=--scale,1,-n,-s,12345,--keys,am&delay=3000" % port)
+                game_png = screenshot(chrome, game_url,
+                                      os.path.join(workdir, "game.png"),
+                                      (SCREEN_WIDTH, SCREEN_HEIGHT))
+                game_size, game_pixels = load_png(game_png)
+                if game_size != (SCREEN_WIDTH, SCREEN_HEIGHT):
+                    raise Failure("the game canvas was %dx%d" % game_size)
+                flat = bytes(value for pixel in game_pixels for value in pixel)
+                got = hashlib.sha256(flat).hexdigest()
+                if all(pixel == (0, 0, 0) for pixel in game_pixels):
+                    raise Failure("the game's canvas is blank; it did not get "
+                                  "as far as drawing anything")
+                report("ok   Umoria itself runs in the browser and reaches "
+                       "character creation")
+                if "creation" in golden and got != golden["creation"]:
+                    raise Failure("the browser's character creation screen "
+                                  "does not match the native one: native %s, "
+                                  "browser %s"
+                                  % (golden["creation"][:16], got[:16]))
+                report("ok   and draws it byte-identically to the native build")
+
+                if args.check_saves:
+                    check_indexeddb_saves(chrome, port, workdir, report)
 
             if args.keep:
                 report("renders kept in %s" % workdir)

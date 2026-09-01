@@ -8,6 +8,10 @@
 
 #include <SDL3/SDL.h>
 
+#ifdef __EMSCRIPTEN__
+#include <emscripten.h>
+#endif
+
 #include <algorithm>
 #include <cstring>
 
@@ -325,7 +329,13 @@ KeyEvent poll_key() {
 }
 
 void delay(unsigned milliseconds) {
+#ifdef __EMSCRIPTEN__
+    // Hands control back to the browser. With Asyncify this can be called
+    // from anywhere, including deep inside Umoria's input loop.
+    emscripten_sleep(milliseconds);
+#else
     SDL_Delay(milliseconds);
+#endif
 }
 
 // Convenience for native code only. The browser build must never block, so
@@ -336,7 +346,7 @@ KeyEvent get_key() {
         if (key.key != kKeyNone) {
             return key;
         }
-        SDL_Delay(8);
+        delay(8);
     }
 }
 

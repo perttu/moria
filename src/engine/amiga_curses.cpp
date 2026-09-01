@@ -1,6 +1,7 @@
 #include "amiga_curses.hpp"
 
 #include "amiga_colours.hpp"
+#include "amiga_web.hpp"
 
 #include <cstdio>   // EOF, which getKeyInput() checks for
 #include <cstdlib>
@@ -78,6 +79,9 @@ WINDOW *initscr() {
 }
 
 int endwin() {
+    // exitProgram() calls terminalRestore() -> here, after saveGame(), so this
+    // is where a browser save reaches IndexedDB.
+    moria::engine::webFlushSaves();
     if (g_running) {
         moria::ui::shutdown();
         g_running = false;

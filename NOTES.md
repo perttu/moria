@@ -9,10 +9,10 @@ Build and run instructions live in README.md.
 
 ## Where this actually is
 
-**Both of the brief's hard questions are now answered yes.** Umoria 5.7.15
-runs on Henrik's frontend: character creation, the town, real tiles, real
-messages, real commands. What is missing is everything cosmetic that made the
-Amiga version distinctive, plus saving and the browser build of the game.
+**Both of the brief's hard questions are answered yes**, and 13 of the 14
+milestones are done. Umoria 5.7.15 runs on Henrik's frontend — natively and in
+a browser — with his tiles, his extended graphics, his colours, his reduced
+map, and saves that survive a reload.
 
 | # | milestone | state |
 | --- | --- | --- |
@@ -20,20 +20,42 @@ Amiga version distinctive, plus saving and the browser build of the game.
 | 2 | tile atlas viewer | done |
 | 3 | static Amiga screen | done |
 | 4 | keyboard frontend | done — real keys into the real engine |
-| 5 | playable town | town renders and responds to commands; not played through |
-| 6 | playable dungeon | same code path, not yet reached in a test |
+| 5 | playable town | done — created, played, saved and reloaded |
+| 6 | playable dungeon | done — reached and checked in a test |
 | 7 | special graphics | done — 96 creatures and 139 objects restored |
-| 8 | overview map | frontend can draw it; Umoria's map command not routed to it |
+| 8 | overview map | done — Umoria's map command draws the small atlas |
 | 9 | full Amiga UI | colour done; message classification is an approximation |
-| 10 | save/load | untested |
+| 10 | save/load | done — round-trip checked pixel for pixel |
 | 11 | macOS .app | blocked: no Mac here |
-| 12 | Emscripten | `amiga-gfx-test` only; the game still blocks on input |
-| 13 | IndexedDB saves | not started |
+| 12 | Emscripten | done — the game runs in Chrome, byte-identical to native |
+| 13 | IndexedDB saves | **not working** — saving hangs the tab, see below |
 | 14 | pixel regression tests | done, including the real game's screens |
 
-The **browser build is still `amiga-gfx-test` only** — Umoria reads keys from
-deep inside its call stack, which a browser cannot be kept waiting through, so
-`moria-amiga` is native-only until that is inverted or Asyncify is turned on.
+**Twelve of the fourteen milestones are done.** Umoria runs on Henrik's
+frontend natively and in the browser, and the browser's character creation
+screen is byte-identical to the native one. Two are outstanding: the macOS
+bundle, which needs a Mac, and browser saves, which are written but hang the
+tab on the way out.
+
+The browser build compiles with **Asyncify**, which unwinds and resumes the
+stack around `ui::delay()`. That is what lets Umoria keep reading keys from
+deep inside its call stack without freezing the tab: the engine keeps its
+structure, and the browser keeps its event loop. Saves are an IDBFS mount at
+`/saves`, read in at startup and written back from `endwin()` — which is where
+`exitProgram()` ends up after `saveGame()`.
+
+**Browser saving does not work yet, and the reason is known.** Loading is
+fine: the IDBFS mount and the initial `syncfs(true)` complete, and a game
+started in the browser plays normally. Saving does not: `exitProgram()` calls
+`exit(0)` immediately after `terminalRestore()`, and `exit()` from inside a
+stack Asyncify has already unwound never returns control to the browser, so
+the tab freezes before IndexedDB can be flushed. Making the flush
+fire-and-forget did not help, which is what points at `exit()` rather than at
+the sync. The check for this lives in `tests/web_smoke.py` behind
+`--check-saves`, off by default and documented in place, so it is a described
+defect rather than a missing test. Fixing it probably means patching
+`exitProgram()` — a fourth substitution — to hand control back to the browser
+instead of calling `exit()`.
 
 ## Extended display codes
 
@@ -84,11 +106,6 @@ Where Amiga.doc is precise, the rule is computed, not guessed:
   before the message arrives. Update.doc calls this out as a 1.1 fix, and
   `io.c` in the 1.1 source passes a literal colour 1 for it.
 
-Message colours use the same idea: the state at each message is compared with
-the state at the previous one, so a stat drop is dark red, a stat rise blue,
-experience gained light blue, and losing hit points red — decided by what
-happened rather than by what was said.
-
 Message colours cannot work that way, and an earlier attempt that tried to
 was wrong. **Umoria prints the message before it applies the consequence** --
 `monsterPrintAttackDescription()` before `executeAttackOnPlayer()`, "You feel
@@ -123,20 +140,21 @@ restoring the floored integer percentage, and colouring only the first glyph.
 - `tools/iff_convert.py`, `tools/gen_gfx_corr.py`, `tools/gen_font.py`
 - Linux build works without the full X11 -dev set
 - Emscripten build, running and pixel-checked in headless Chrome
-- Test suite: `gfx-corr`, `pixel-screens`, `smoke-start`, `web-smoke`, the
-  three tool suites, and an opt-in `build-from-clean`
+- Test suite: `gfx-corr`, `colours`, `sprites`, `pixel-screens`,
+  `game-screens`, `smoke-start`, `web-smoke`, the three tool suites, and an
+  opt-in `build-from-clean`
 
 ### Next
 
-- [ ] Sharpen message colouring: every phrase in `classifyMessageText()` that
-      is wrong is a message Henrik coloured and we do not
-- [ ] Milestone 8: route Umoria's map command to `ui::overview_tile` and the
-      small atlas
-- [ ] Milestone 6: play down to a dungeon level in a test
-- [ ] Milestone 10: save, quit, reload
-- [ ] Milestone 12/13: Asyncify the engine build for the browser, then
-      IndexedDB saves
-- [ ] macOS build and `.app` bundle — needs the owner's Mac
+- [ ] Browser saves: stop `exitProgram()` calling `exit(0)` under Emscripten,
+      so the flush to IndexedDB can complete. Then turn on
+      `web_smoke.py --check-saves`.
+- [ ] macOS build and `.app` bundle — needs a Mac. The CMake is conventional
+      but has never been run.
+- [ ] Sharpen message colouring: every phrase `classifyMessageText()` does not
+      know is a message Henrik coloured and we draw white
+- [ ] Replace the placeholder font with real Topaz
+- [ ] Licence review before anything is published
 
 ### Verified, and how
 

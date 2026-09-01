@@ -17,9 +17,11 @@ palette, the colour semantics and the reduced 1:4 overview.
 
 Two binaries.
 
-**`moria-amiga`** — Umoria 5.7.15 running on the Amiga frontend. Character
-creation, the town, real tiles, real messages, real commands, and Henrik's
-semantic colours. Native only for now; see NOTES.md for what is outstanding.
+**`moria-amiga`** — Umoria 5.7.15 running on the Amiga frontend: Henrik's
+tiles, his extended graphics for 96 creatures and 139 objects, his semantic
+colours, his 1:4 overview map, and save/load. Builds natively and for the
+browser, where its character creation screen is byte-identical to the native
+one. Browser *saving* does not work yet — see NOTES.md.
 
 **`amiga-gfx-test`** — the frontend with no engine behind it, which is what
 proved the artwork and geometry before any Umoria code was touched. It renders
@@ -27,10 +29,13 @@ four screens into a real 640x200 framebuffer: the original title, a GFX_CORR
 atlas viewer, a stand-in dungeon, and the reduced overview map. It is also the
 browser target.
 
-Umoria is compiled straight from `vendored/umoria`, minus two files: its
-`main()`, and `ui_io.cpp` — the only file in it that talks to a terminal,
-which is copied at build time with three exact substitutions
-(`tools/patch_ui_io.py`). No gameplay source is modified.
+Umoria's sources are copied into the build tree by `tools/patch_umoria.py`,
+which applies a handful of exact substitutions on the way through: `ui_io.cpp`
+draws through the frontend, `dungeon.cpp` hands the reduced map over, and
+`headers.h` learns that Emscripten exists. Every substitution must match
+exactly or the build fails. Its `main()` is replaced by `src/engine/main.cpp`.
+**No gameplay source is modified** — everything not named in that script is
+byte-identical to upstream.
 
 ## Historical inputs
 

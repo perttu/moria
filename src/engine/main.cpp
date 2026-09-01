@@ -9,6 +9,7 @@
 #include <string>
 
 #include "amiga_curses.hpp"
+#include "amiga_web.hpp"
 
 // Umoria's headers are C++ but assume they are included as a set.
 #include "headers.h"
@@ -161,6 +162,11 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
+    // In the browser the save directory is IndexedDB-backed and has to be
+    // mounted before anything looks for a save file.
+    if (const char *web_save = moria::engine::webMountSaves()) {
+        config::files::save_game = web_save;
+    }
     if (!options.save_game.empty()) {
         config::files::save_game = options.save_game;
     }

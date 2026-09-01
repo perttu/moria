@@ -250,69 +250,50 @@ target_link_libraries(amiga-gfx-test PRIVATE moria-frontend)
 # ---------------------------------------------------------------------------
 set(MORIA_UMORIA_DIR "${CMAKE_CURRENT_SOURCE_DIR}/vendored/umoria")
 
-if(EMSCRIPTEN)
-    # Umoria reads keys from deep inside its call stack, and a browser cannot
-    # be kept waiting there. Getting the game into the browser needs Asyncify
-    # (or an inverted main loop); until then only amiga-gfx-test is built for
-    # the web, which is what web-smoke exercises.
-    message(STATUS
-        "Skipping moria-amiga for Emscripten: its input loop still blocks. "
-        "amiga-gfx-test is the browser target for now.")
-elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
-    file(GLOB MORIA_UMORIA_SOURCES CONFIGURE_DEPENDS "${MORIA_UMORIA_DIR}/src/*.cpp")
-    list(REMOVE_ITEM MORIA_UMORIA_SOURCES
-        "${MORIA_UMORIA_DIR}/src/main.cpp"      # replaced by src/engine/main.cpp
-        "${MORIA_UMORIA_DIR}/src/ui_io.cpp"     # replaced by the patched copy
-        "${MORIA_UMORIA_DIR}/src/dungeon.cpp")  # replaced by the patched copy
+if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
+    # Umoria's sources are copied into the build tree and three of them are
+    # patched on the way through: ui_io.cpp to draw through the frontend,
+    # dungeon.cpp to hand the reduced map over, and headers.h to admit that
+    # Emscripten exists. The whole tree is copied rather than compiled in
+    # place because a quoted #include always finds the file next to it -- a
+    # patched headers.h has no effect unless its neighbours come along.
+    # Everything not listed in the patcher is byte-identical to upstream.
+    set(MORIA_UMORIA_COPY "${MORIA_GENERATED_DIR}/umoria")
 
-    # Henrik's extended display codes, recovered from the 1.1 data tables and
-    # keyed by the names modern Umoria still uses. The counts are asserted
-    # here so a rename upstream is a build failure rather than a creature
-    # quietly losing its graphic.
-    add_custom_command(
-        OUTPUT "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp"
-        COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_amiga_codes.py"
-                --historical "${MORIA_HISTORICAL_DIR}"
-                --umoria "${MORIA_UMORIA_DIR}/src"
-                --hpp "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp"
-                --expect-creatures 96
-                --expect-objects 139
-        DEPENDS "${MORIA_HISTORICAL_DIR}/monsters.c"
-                "${MORIA_HISTORICAL_DIR}/treasure.c"
-                "${MORIA_UMORIA_DIR}/src/data_creatures.cpp"
-                "${MORIA_UMORIA_DIR}/src/data_treasure.cpp"
-                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_amiga_codes.py"
-        COMMENT "Recovering Henrik's extended display codes"
-        VERBATIM)
-
-    add_custom_command(
-        OUTPUT "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
-               "${MORIA_GENERATED_DIR}/dungeon.amiga.cpp"
+    execute_process(
         COMMAND "${Python3_EXECUTABLE}"
                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_umoria.py"
-                --src "${MORIA_UMORIA_DIR}/src"
-                --out "${MORIA_GENERATED_DIR}"
-        DEPENDS "${MORIA_UMORIA_DIR}/src/ui_io.cpp"
-                "${MORIA_UMORIA_DIR}/src/dungeon.cpp"
-                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_umoria.py"
-        COMMENT "Retargeting Umoria's display code at the Amiga frontend"
-        VERBATIM)
+                --src "${MORIA_UMORIA_DIR}/src" --out "${MORIA_UMORIA_COPY}"
+        RESULT_VARIABLE _moria_patch_result
+        OUTPUT_VARIABLE _moria_patch_output)
+    if(NOT _moria_patch_result EQUAL 0)
+        message(FATAL_ERROR "could not prepare Umoria's sources: ${_moria_patch_output}")
+    endif()
+    string(STRIP "${_moria_patch_output}" _moria_patch_output)
+    message(STATUS "Umoria: ${_moria_patch_output}")
+
+    # Reconfigure when upstream changes, so the copies never go stale.
+    file(GLOB _moria_umoria_inputs CONFIGURE_DEPENDS
+         "${MORIA_UMORIA_DIR}/src/*.cpp" "${MORIA_UMORIA_DIR}/src/*.h")
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+                 ${_moria_umoria_inputs}
+                 "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_umoria.py")
+
+    file(GLOB MORIA_UMORIA_SOURCES "${MORIA_UMORIA_COPY}/*.cpp")
 
     # Everything but the entry point, so tests can link the game's state and
     # the colour policy without pulling in main().
     add_library(moria-engine STATIC
         ${MORIA_UMORIA_SOURCES}
-        "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
-        "${MORIA_GENERATED_DIR}/dungeon.amiga.cpp"
         src/engine/amiga_colours.cpp
         src/engine/amiga_overview.cpp
+        src/engine/amiga_web.cpp
         src/engine/amiga_curses.cpp
         src/engine/amiga_sprites.cpp
         "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp")
 
     target_include_directories(moria-engine PUBLIC
-        "${MORIA_UMORIA_DIR}/src"
+        "${MORIA_UMORIA_COPY}"
         src/engine)
 
     target_link_libraries(moria-engine PUBLIC moria-frontend)
@@ -326,6 +307,27 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
 
     add_executable(moria-amiga src/engine/main.cpp)
     target_link_libraries(moria-amiga PRIVATE moria-engine)
+
+    if(EMSCRIPTEN)
+        # Umoria reads keys from deep inside its call stack and a browser
+        # cannot be kept waiting there. Asyncify unwinds and resumes that
+        # stack around ui::delay(), so the engine keeps its structure and the
+        # browser keeps its event loop.
+        #
+        # The data files are baked into the download, and the save directory
+        # is IDBFS so a save survives closing the tab.
+        set_target_properties(moria-amiga PROPERTIES SUFFIX ".html")
+        target_link_options(moria-amiga PRIVATE
+            -sASYNCIFY
+            -sASYNCIFY_STACK_SIZE=131072
+            -sALLOW_MEMORY_GROWTH=1
+            -sSTACK_SIZE=1048576
+            -sEXPORTED_RUNTIME_METHODS=ccall
+            -sFORCE_FILESYSTEM=1
+            -lidbfs.js
+            "--preload-file=${MORIA_UMORIA_DIR}/data@/data"
+            "--preload-file=${MORIA_UMORIA_DIR}/data/scores.dat@/scores.dat")
+    endif()
 
     # Umoria looks for these relative to the working directory.
     file(COPY
@@ -436,8 +438,9 @@ if(BUILD_TESTING)
                          "${CMAKE_CURRENT_SOURCE_DIR}/tests/web_smoke.py"
                          --build-web "${MORIA_WEB_BUILD_DIR}"
                          --assets "${MORIA_ASSET_DIR}"
-                         --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json")
-        set_tests_properties(web-smoke PROPERTIES TIMEOUT 600)
+                         --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json"
+                         --game-golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_game_screens.json")
+        set_tests_properties(web-smoke PROPERTIES TIMEOUT 900)
     endif()
 
     # Umoria actually driving the frontend: the real game is run through

@@ -9,6 +9,7 @@
   ones.
 
   Query parameters:
+    app=moria-amiga  which Emscripten build to load (default: amiga-gfx-test)
     args=--scale,1   passed straight through to main() as argv
     keys=Space,m     dispatched as keydown once the runtime is up
     delay=1500       milliseconds to wait before dispatching
@@ -20,14 +21,23 @@
   canvas { display: block; image-rendering: pixelated; }
 </style>
 <canvas id="canvas" tabindex="1"></canvas>
+<pre id="log" style="color:#0f0;font:10px monospace"></pre>
 <script>
+  // Mirrored into the DOM so --dump-dom can retrieve it; a headless browser
+  // has nowhere else to put a stack trace.
+  function log(stream, text) {
+    document.getElementById("log").textContent += stream + ": " + text + "\n";
+  }
+  window.onerror = (message) => log("err", "onerror: " + message);
+
   const params = new URLSearchParams(location.search);
   const split = (name) => (params.get(name) || "").split(",").filter(Boolean);
 
   var Module = {
     canvas: document.getElementById("canvas"),
     arguments: split("args"),
-    printErr: (text) => { window.__stderr = (window.__stderr || "") + text + "\n"; },
+    print: (text) => log("out", text),
+    printErr: (text) => log("err", text),
     onRuntimeInitialized: () => { window.__ready = true; },
   };
 
@@ -64,4 +74,10 @@
     }, delay);
   });
 </script>
-<script src="amiga-gfx-test.js"></script>
+<script>
+  // Loaded last, and by name, so the same harness can host either build.
+  const app = params.get("app") || "amiga-gfx-test";
+  const tag = document.createElement("script");
+  tag.src = app + ".js";
+  document.body.appendChild(tag);
+</script>
