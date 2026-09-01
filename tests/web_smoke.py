@@ -190,6 +190,54 @@ def check_browser_saves(chrome, port, workdir, report):
            % stored)
 
 
+def check_browser_loads_a_save(chrome, port, workdir, served_dir, game_binary,
+                               report):
+    """Plant a save in browser storage, then check the game restores it.
+
+    The saving half is checked above. This is the other half, and it needs a
+    save that already exists: the native binary makes one, the harness puts it
+    into storage before the module starts, and the game is loaded with no -n
+    so it has to find it.
+    """
+    if not game_binary or not os.path.exists(game_binary):
+        report("skip restoring a save: no native binary to make one with")
+        return
+
+    fixture = os.path.abspath(os.path.join(served_dir, "fixture.sav"))
+    if os.path.exists(fixture):
+        os.remove(fixture)
+    subprocess.run(
+        [os.path.abspath(game_binary), "--headless", "-n", "-s", "12345",
+         "--keys", "am\\eaFenwick\\n  \\cX ",
+         "--screenshot", os.path.abspath(os.path.join(workdir, "fixture.bmp")),
+         fixture],
+        capture_output=True, text=True, timeout=120,
+        cwd=os.path.dirname(game_binary) or ".")
+    if not os.path.exists(fixture):
+        raise Failure("could not make a save fixture with the native binary")
+    report("ok   made a %d byte save with the native build to restore from"
+           % os.path.getsize(fixture))
+
+    url = ("http://127.0.0.1:%d/harness.html?app=moria-amiga"
+           "&seedSave=fixture.sav&args=--scale,1,-s,12345,--keys,%%20%%20"
+           % port)
+    shot = screenshot(chrome, url, os.path.join(workdir, "restored.png"),
+                      (SCREEN_WIDTH, SCREEN_HEIGHT))
+    size, pixels = load_png(shot)
+    if size != (SCREEN_WIDTH, SCREEN_HEIGHT):
+        raise Failure("the restored game rendered %dx%d" % size)
+
+    # A game that did not find its save starts character creation, which draws
+    # nothing in the dungeon viewport. A restored one is standing in the town.
+    drawn = sum(1 for y in range(CELL, SCREEN_HEIGHT)
+                for x in range(MAP_COL_OFFSET * CELL, SCREEN_WIDTH)
+                if pixels[y * SCREEN_WIDTH + x] != (0, 0, 0))
+    if drawn < 1000:
+        raise Failure("the browser did not restore the save: only %d pixels "
+                      "drawn in the map area" % drawn)
+    report("ok   the browser restored a save from storage and resumed the game")
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -200,6 +248,8 @@ def main(argv=None):
                                      "to check the browser renders the same pixels")
     ap.add_argument("--game-golden", help="golden hashes for the real game's "
                                           "screens, for the browser game build")
+    ap.add_argument("--game-binary", help="native moria-amiga, used to make a "
+                                          "save fixture for the restore check")
     ap.add_argument("--keep", action="store_true", help="keep the rendered PNGs")
     args = ap.parse_args(argv)
 
@@ -296,6 +346,9 @@ def main(argv=None):
                 report("ok   and draws it byte-identically to the native build")
 
                 check_browser_saves(chrome, port, workdir, report)
+                check_browser_loads_a_save(chrome, port, workdir,
+                                           args.build_web, args.game_binary,
+                                           report)
 
             if args.keep:
                 report("renders kept in %s" % workdir)

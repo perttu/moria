@@ -90,9 +90,16 @@ handler flushes for a player who just closes the tab.
 browser build calls `emscripten_exit_with_live_runtime()` instead, so the last
 screen stays on the canvas and the tab stays responsive.
 
-Verified end to end in headless Chrome: the game saves 4850 bytes — the same
-size as the native save — and the page reads all 4850 back out of storage.
-`web-smoke` asserts it on every run.
+Verified end to end in headless Chrome, both halves. Saving: the game writes
+4850 bytes — the same size as the native save — and the page reads all 4850
+back out of storage. Loading: a save made by the native build is planted in
+storage, the page is opened without `-n`, and the game comes up in the town
+as that character. `web-smoke` asserts both on every run.
+
+`^X` is Moria's *save and quit*, so it ends the session by design: the game
+saves, shows the high scores, and stops. In the browser it then parks with
+"you can close this tab" rather than exiting. Reloading the page resumes from
+the save.
 
 ## Extended display codes
 

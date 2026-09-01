@@ -450,7 +450,9 @@ if(BUILD_TESTING)
                          --build-web "${MORIA_WEB_BUILD_DIR}"
                          --assets "${MORIA_ASSET_DIR}"
                          --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json"
-                         --game-golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_game_screens.json")
+                         --game-golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_game_screens.json"
+                         $<$<TARGET_EXISTS:moria-amiga>:--game-binary>
+                         $<$<TARGET_EXISTS:moria-amiga>:$<TARGET_FILE:moria-amiga>>)
         set_tests_properties(web-smoke PROPERTIES TIMEOUT 900)
     endif()
 

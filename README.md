@@ -137,7 +137,7 @@ goal is that the pixels do not move.
 | test | what it actually checks |
 | --- | --- |
 | `smoke-start` | the binary comes up: `--help` exits zero, a bad argument does not, all four screens render at 640×200, `--scale 3` leaves the virtual screen alone, and it starts against a real X server rather than only the dummy driver |
-| `web-smoke` | the WebAssembly build in headless Chrome: the canvas draws the title pixel-identically to `moria_title.iff`, Space reaches the game through the browser event path, the dungeon screen is byte-identical to the native render, the real game reaches character creation, and a save is written to browser storage and read back |
+| `web-smoke` | the WebAssembly build in headless Chrome: the canvas draws the title pixel-identically to `moria_title.iff`, Space reaches the game through the browser event path, the dungeon screen is byte-identical to the native render, the real game reaches character creation, a save is written to browser storage and read back, and a save planted in storage is restored and resumed |
 | `keys` | every command character a player needs, including `*`, `?` and the `>` / `<` stair keys |
 | `game-screens` | the real game, driven with a fixed seed through character creation into the town: the screens match reviewed goldens, two runs agree, and **every drawn cell of the viewport is a tile from the atlas rather than a character from the font** |
 | `colours` | every colour rule quoted from Amiga.doc and Update.doc, then a render through the real shim: at 20% health the hit point line comes out red, not white |

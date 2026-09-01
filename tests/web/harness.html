@@ -17,6 +17,9 @@
                      browser's storage, so persistence can be checked without
                      needing a second browser session
     verifyDelay=6000 milliseconds to wait before that check
+    seedSave=NAME    fetch NAME and put it in browser storage before the
+                     module starts, so the loading half of a save round trip
+                     can be checked in one page load
 -->
 <meta charset="utf-8">
 <title>moria web harness</title>
@@ -101,7 +104,31 @@
 <script>
   // Loaded last, and by name, so the same harness can host either build.
   const app = params.get("app") || "amiga-gfx-test";
-  const tag = document.createElement("script");
-  tag.src = app + ".js";
-  document.body.appendChild(tag);
+
+  function startApp() {
+    const tag = document.createElement("script");
+    tag.src = app + ".js";
+    document.body.appendChild(tag);
+  }
+
+  const seed = params.get("seedSave");
+  if (seed) {
+    // Put a save into storage before the module runs, so one page load can
+    // check that the game finds and restores it.
+    fetch(seed).then((response) => response.arrayBuffer()).then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let text = "";
+      for (let i = 0; i < bytes.length; i++) {
+        text += String.fromCharCode(bytes[i]);
+      }
+      localStorage.setItem("moria.save", btoa(text));
+      log("seed", "planted a save of " + bytes.length + " bytes");
+      startApp();
+    }).catch((e) => {
+      log("seed", "could not plant a save: " + e);
+      startApp();
+    });
+  } else {
+    startApp();
+  }
 </script>
