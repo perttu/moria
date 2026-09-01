@@ -18,9 +18,8 @@ palette, the colour semantics and the reduced 1:4 overview.
 Two binaries.
 
 **`moria-amiga`** — Umoria 5.7.15 running on the Amiga frontend. Character
-creation, the town, real tiles, real messages, real commands. Native only for
-now, and still monochrome: Henrik's semantic colours are not wired up yet. See
-NOTES.md for what else is outstanding.
+creation, the town, real tiles, real messages, real commands, and Henrik's
+semantic colours. Native only for now; see NOTES.md for what is outstanding.
 
 **`amiga-gfx-test`** — the frontend with no engine behind it, which is what
 proved the artwork and geometry before any Umoria code was touched. It renders
@@ -135,6 +134,7 @@ goal is that the pixels do not move.
 | `smoke-start` | the binary comes up: `--help` exits zero, a bad argument does not, all four screens render at 640×200, `--scale 3` leaves the virtual screen alone, and it starts against a real X server rather than only the dummy driver |
 | `web-smoke` | the WebAssembly build in headless Chrome: the canvas draws the title pixel-identically to `moria_title.iff`, Space reaches the game through the browser event path, and the resulting dungeon screen is byte-identical to the native render |
 | `game-screens` | the real game, driven with a fixed seed through character creation into the town: the screens match reviewed goldens, two runs agree, and **every drawn cell of the viewport is a tile from the atlas rather than a character from the font** |
+| `colours` | every colour rule quoted from Amiga.doc and Update.doc, then a render through the real shim: at 20% health the hit point line comes out red, not white |
 | `gfx-corr` | the tile mapping, the extended codes above 127, and the seed parameters, against values transcribed from the 1992 source |
 | `pixel-screens` | the rendered title against `moria_title.iff` itself; named dungeon cells against the atlas tile that belongs at that screen position; each whole screen against a reviewed golden hash; the X11 render against the headless one |
 | `tool-iff-convert` | ILBM masking modes 0, 1 and 2 survive conversion into both output formats |

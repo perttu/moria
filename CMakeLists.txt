@@ -275,24 +275,29 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         COMMENT "Retargeting Umoria's terminal layer at the Amiga frontend"
         VERBATIM)
 
-    add_executable(moria-amiga
+    # Everything but the entry point, so tests can link the game's state and
+    # the colour policy without pulling in main().
+    add_library(moria-engine STATIC
         ${MORIA_UMORIA_SOURCES}
         "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
-        src/engine/amiga_curses.cpp
-        src/engine/main.cpp)
+        src/engine/amiga_colours.cpp
+        src/engine/amiga_curses.cpp)
 
-    target_include_directories(moria-amiga PRIVATE
+    target_include_directories(moria-engine PUBLIC
         "${MORIA_UMORIA_DIR}/src"
         src/engine)
 
-    target_link_libraries(moria-amiga PRIVATE moria-frontend)
+    target_link_libraries(moria-engine PUBLIC moria-frontend)
 
     # Umoria's own warning suppressions; its 1980s string handling trips
     # modern GCC otherwise.
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-        target_compile_options(moria-amiga PRIVATE
+        target_compile_options(moria-engine PRIVATE
             -Wno-format-overflow -Wno-format-truncation)
     endif()
+
+    add_executable(moria-amiga src/engine/main.cpp)
+    target_link_libraries(moria-amiga PRIVATE moria-engine)
 
     # Umoria looks for these relative to the working directory.
     file(COPY
@@ -411,6 +416,15 @@ if(BUILD_TESTING)
     # character creation into the town with a fixed seed, and the screen it
     # produces is checked -- including that every drawn cell of the viewport
     # is a tile from the atlas rather than a character from the font.
+    if(TARGET moria-engine)
+        # Henrik's colour scheme, against the values Amiga.doc and Update.doc
+        # state. Most of these cannot be seen in a screenshot: an undamaged
+        # character with no drained stats is correctly drawn all in white.
+        add_executable(colour-test tests/colour_test.cpp)
+        target_link_libraries(colour-test PRIVATE moria-engine)
+        add_test(NAME colours COMMAND colour-test)
+    endif()
+
     if(TARGET moria-amiga)
         add_test(NAME game-screens
                  COMMAND "${Python3_EXECUTABLE}"

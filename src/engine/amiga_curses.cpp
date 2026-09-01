@@ -1,5 +1,7 @@
 #include "amiga_curses.hpp"
 
+#include "amiga_colours.hpp"
+
 #include <cstdio>   // EOF, which getKeyInput() checks for
 #include <cstdlib>
 #include <cstring>
@@ -132,9 +134,19 @@ int addstr(const char *str) {
     if (str == nullptr) {
         return ERR;
     }
+
+    // Umoria has no notion of colour, so it is decided here, from where the
+    // text is going and what it says. A whole string at a time: the policy
+    // needs the message, not one character of it.
+    const moria::ui::Color saved = g_colour;
+    g_colour = moria::engine::colours::forText(stdscr->cursor_row,
+                                               stdscr->cursor_col, str);
+
     for (const char *p = str; *p != '\0'; ++p) {
         addch(*p);
     }
+
+    g_colour = saved;
     return OK;
 }
 

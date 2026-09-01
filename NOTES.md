@@ -24,19 +24,48 @@ Amiga version distinctive, plus saving and the browser build of the game.
 | 6 | playable dungeon | same code path, not yet reached in a test |
 | 7 | special graphics | table extracted; nothing assigns codes to monsters |
 | 8 | overview map | frontend can draw it; Umoria's map command not routed to it |
-| 9 | full Amiga UI | **monochrome** — every cell is Color::Normal |
+| 9 | full Amiga UI | colour done; message classification is an approximation |
 | 10 | save/load | untested |
 | 11 | macOS .app | blocked: no Mac here |
 | 12 | Emscripten | `amiga-gfx-test` only; the game still blocks on input |
 | 13 | IndexedDB saves | not started |
 | 14 | pixel regression tests | done, including the real game's screens |
 
-Two things to be clear about. **Nothing is coloured yet**: Henrik's semantic
-message and stat colours are the single most visible difference from the
-original, and the shim currently writes everything as `Color::Normal`. And the
-**browser build is still `amiga-gfx-test` only** — Umoria reads keys from deep
-inside its call stack, which a browser cannot be kept waiting through, so
+The **browser build is still `amiga-gfx-test` only** — Umoria reads keys from
+deep inside its call stack, which a browser cannot be kept waiting through, so
 `moria-amiga` is native-only until that is inverted or Asyncify is turned on.
+
+## Colour
+
+Henrik implemented his scheme by passing a colour from each engine call site.
+This port does not, because modifying gameplay source is the one thing the
+whole arrangement exists to avoid. `src/engine/amiga_colours.cpp` decides
+instead, from the screen position and the game's own state.
+
+Where Amiga.doc is precise, the rule is computed, not guessed:
+
+- hit points and mana are coloured by percentage — 0-25% red, 25-75% yellow,
+  75-100% light green, 100% white — read from `py.misc`, so a wound shows
+  even before the number on screen changes;
+- a characteristic is yellow while `py.stats.current[i] < py.stats.max[i]`;
+- `Hungry` is yellow and `Weak` is red, per Update.doc;
+- `-more-` is deliberately never coloured, so it cannot give away a kill
+  before the message arrives. Update.doc calls this out as a 1.1 fix, and
+  `io.c` in the 1.1 source passes a literal colour 1 for it.
+
+Message colours use the same idea: the state at each message is compared with
+the state at the previous one, so a stat drop is dark red, a stat rise blue,
+experience gained light blue, and losing hit points red — decided by what
+happened rather than by what was said.
+
+**The remainder is an approximation.** Distinguishing "you hit" from "you
+missed" has no state signature, so those fall back to a phrase table in
+`classifyMessageText()`. It will mis-colour messages Henrik coloured by hand.
+The alternative was editing gameplay call sites throughout Umoria.
+
+`colour-test` asserts every documented rule, and finishes by driving a string
+through the real shim and counting pixels: at 20% health the hit point line
+renders 134 red pixels and no white ones.
 
 ### Done so far
 
@@ -49,9 +78,8 @@ inside its call stack, which a browser cannot be kept waiting through, so
 
 ### Next
 
-- [ ] Milestone 9: colour. Drive `engine::setColour()` from Umoria's call
-      sites — messages by severity, stats by status and HP/mana percentage.
-      This is the biggest visible gap.
+- [ ] Sharpen message colouring: every phrase in `classifyMessageText()` that
+      is wrong is a message Henrik coloured and we do not
 - [ ] Milestone 7: assign Henrik's extended display codes at the presentation
       layer, from monster identity — never by touching monster data
 - [ ] Milestone 8: route Umoria's map command to `ui::overview_tile` and the
