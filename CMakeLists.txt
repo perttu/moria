@@ -264,6 +264,27 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         "${MORIA_UMORIA_DIR}/src/main.cpp"     # replaced by src/engine/main.cpp
         "${MORIA_UMORIA_DIR}/src/ui_io.cpp")   # replaced by the patched copy
 
+    # Henrik's extended display codes, recovered from the 1.1 data tables and
+    # keyed by the names modern Umoria still uses. The counts are asserted
+    # here so a rename upstream is a build failure rather than a creature
+    # quietly losing its graphic.
+    add_custom_command(
+        OUTPUT "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp"
+        COMMAND "${Python3_EXECUTABLE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_amiga_codes.py"
+                --historical "${MORIA_HISTORICAL_DIR}"
+                --umoria "${MORIA_UMORIA_DIR}/src"
+                --hpp "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp"
+                --expect-creatures 96
+                --expect-objects 139
+        DEPENDS "${MORIA_HISTORICAL_DIR}/monsters.c"
+                "${MORIA_HISTORICAL_DIR}/treasure.c"
+                "${MORIA_UMORIA_DIR}/src/data_creatures.cpp"
+                "${MORIA_UMORIA_DIR}/src/data_treasure.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_amiga_codes.py"
+        COMMENT "Recovering Henrik's extended display codes"
+        VERBATIM)
+
     add_custom_command(
         OUTPUT "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
         COMMAND "${Python3_EXECUTABLE}"
@@ -281,7 +302,9 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         ${MORIA_UMORIA_SOURCES}
         "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
         src/engine/amiga_colours.cpp
-        src/engine/amiga_curses.cpp)
+        src/engine/amiga_curses.cpp
+        src/engine/amiga_sprites.cpp
+        "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp")
 
     target_include_directories(moria-engine PUBLIC
         "${MORIA_UMORIA_DIR}/src"
@@ -423,6 +446,13 @@ if(BUILD_TESTING)
         add_executable(colour-test tests/colour_test.cpp)
         target_link_libraries(colour-test PRIVATE moria-engine)
         add_test(NAME colours COMMAND colour-test)
+
+        # Henrik's extended display codes. Losing one is invisible in a
+        # screenshot -- the game still draws something -- so they are checked
+        # by name.
+        add_executable(sprite-test tests/sprite_test.cpp)
+        target_link_libraries(sprite-test PRIVATE moria-engine)
+        add_test(NAME sprites COMMAND sprite-test)
     endif()
 
     if(TARGET moria-amiga)

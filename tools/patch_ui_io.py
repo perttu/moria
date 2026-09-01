@@ -30,22 +30,33 @@ SUBSTITUTIONS = [
     (
         "the curses include",
         '#include "curses.h"',
-        '#include "amiga_curses.hpp"',
+        '#include "amiga_curses.hpp"\n#include "amiga_sprites.hpp"',
     ),
     (
         "panelPutTile, the dungeon map cell",
-        """    if (mvaddch(coord.y, coord.x, ch) == ERR) {
+        """void panelPutTile(char ch, Coord_t coord) {
+    // Real coords convert to screen positions
+    coord.y -= dg.panel.row_prt;
+    coord.x -= dg.panel.col_prt;
+
+    if (mvaddch(coord.y, coord.x, ch) == ERR) {
         abort();
     }
-}
+}""",
+        """void panelPutTile(char ch, Coord_t coord) {
+    // Henrik Harmsen's putgfx() drew exactly here, and the character is a
+    // display code rather than a glyph: it selects a tile through GFX_CORR.
+    // The substitution happens while the coordinates are still dungeon
+    // coordinates, because that is what identifies what is standing there.
+    unsigned char code = moria::engine::displayCodeFor(
+        static_cast<unsigned char>(ch), coord.y, coord.x);
 
-static Coord_t currentCursorPosition() {""",
-        """    // Henrik Harmsen's putgfx() drew exactly here. The character is a
-    // display code, not a glyph: it selects a tile through GFX_CORR.
-    moria::engine::putTile(coord.y, coord.x, static_cast<unsigned char>(ch));
-}
+    // Real coords convert to screen positions
+    coord.y -= dg.panel.row_prt;
+    coord.x -= dg.panel.col_prt;
 
-static Coord_t currentCursorPosition() {""",
+    moria::engine::putTile(coord.y, coord.x, code);
+}""",
     ),
     (
         "the non-blocking key poll",

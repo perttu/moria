@@ -22,7 +22,7 @@ Amiga version distinctive, plus saving and the browser build of the game.
 | 4 | keyboard frontend | done — real keys into the real engine |
 | 5 | playable town | town renders and responds to commands; not played through |
 | 6 | playable dungeon | same code path, not yet reached in a test |
-| 7 | special graphics | table extracted; nothing assigns codes to monsters |
+| 7 | special graphics | done — 96 creatures and 139 objects restored |
 | 8 | overview map | frontend can draw it; Umoria's map command not routed to it |
 | 9 | full Amiga UI | colour done; message classification is an approximation |
 | 10 | save/load | untested |
@@ -34,6 +34,37 @@ Amiga version distinctive, plus saving and the browser build of the game.
 The **browser build is still `amiga-gfx-test` only** — Umoria reads keys from
 deep inside its call stack, which a browser cannot be kept waiting through, so
 `moria-amiga` is native-only until that is inverted or Asyncify is turned on.
+
+## Extended display codes
+
+Standard Umoria draws whole categories with one letter: every centipede a
+'c', every townsperson a 'p'. Henrik gave **96 creatures and 139 objects**
+their own graphics by putting a code outside the printable range in the data
+tables — "Filthy Street Urchin" is 133, not 't'; "Ancient Red Dragon" is 238,
+not 'D'. Not all are above 127: "White Icky-Thing" is 10.
+
+Those codes cannot simply be written back into `creatures_list[].sprite`,
+because gameplay reads that field — `monster_manager.cpp` breeds by comparing
+it to 'd' and 'D', and the genocide command asks the player for a symbol. So
+`tools/gen_amiga_codes.py` recovers the mapping keyed by **name**, and
+`displayCodeFor()` substitutes at the moment a cell is drawn, in
+`panelPutTile()`, while the coordinates are still dungeon coordinates.
+
+Matching against 5.7.15 by name: **all 96 creatures matched exactly.** Objects
+needed more work — 122 exact, 12 after ignoring case and punctuation
+(`& Cat-O-Nine Tails` → `& Cat-o'-Nine-Tails`), and 5 renamed outright:
+
+- `& Mace (Lead-filled)` → `& Lead-Filled Mace`
+- `[Beginners-Magik]` → `[Beginners-Magick]`
+- `[Magik I]` / `[Magik II]` → `[Magick I]` / `[Magick II]`
+- `[Exorcism and Dispelling]` → `[Exorcisms and Dispellings]`
+
+That is the 5.5-to-5.7 drift this file warned about, and it turned out to be
+five objects rather than anything structural. The generator refuses to emit a
+table if a name goes unmatched, so a future rename is a build failure rather
+than a creature quietly losing its graphic — and it also checks every
+recovered code has an explicit GFX_CORR tile, since a code without one would
+draw whatever the hallucination seeding left there.
 
 ## Colour
 
@@ -99,8 +130,6 @@ restoring the floored integer percentage, and colouring only the first glyph.
 
 - [ ] Sharpen message colouring: every phrase in `classifyMessageText()` that
       is wrong is a message Henrik coloured and we do not
-- [ ] Milestone 7: assign Henrik's extended display codes at the presentation
-      layer, from monster identity — never by touching monster data
 - [ ] Milestone 8: route Umoria's map command to `ui::overview_tile` and the
       small atlas
 - [ ] Milestone 6: play down to a dungeon level in a test
