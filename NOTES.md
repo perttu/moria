@@ -58,14 +58,33 @@ the state at the previous one, so a stat drop is dark red, a stat rise blue,
 experience gained light blue, and losing hit points red — decided by what
 happened rather than by what was said.
 
-**The remainder is an approximation.** Distinguishing "you hit" from "you
-missed" has no state signature, so those fall back to a phrase table in
-`classifyMessageText()`. It will mis-colour messages Henrik coloured by hand.
-The alternative was editing gameplay call sites throughout Umoria.
+Message colours cannot work that way, and an earlier attempt that tried to
+was wrong. **Umoria prints the message before it applies the consequence** --
+`monsterPrintAttackDescription()` before `executeAttackOnPlayer()`, "You feel
+weaker." before `playerStatRandomDecrease()`, "You have picked the lock."
+before `py.misc.exp++`. Comparing state against the previous message therefore
+coloured the wrong line: the attack came out white, and the next unrelated
+message came out red. Messages are classified from their text instead, using
+phrases taken from Umoria's own source, which is also what Henrik was choosing
+between when he coloured each call site by hand.
 
-`colour-test` asserts every documented rule, and finishes by driving a string
-through the real shim and counting pixels: at 20% health the hit point line
-renders 134 red pixels and no white ones.
+**That is an approximation, and phrases the table does not know are white.**
+Ordering inside the table is load-bearing: "but it passes" is matched before
+the drain phrase it contains, the chest before the kill, a trap before a hit.
+
+Two colours that are easy to conflate are kept apart, because Henrik's palette
+holds both: a successful hit is green (entry 7), while 75-100% vitals are
+light green (entry 6).
+
+`colour-test` asserts every documented rule, runs the attack, stat-drain and
+lock-picking cases **in the engine's own order**, and finishes by rendering
+through the real shim and counting pixels: every drawn pixel of the hit point
+line at 20% health is red (134 of 134), and every pixel of a hit message is
+green (346 of 346), with none of the vitals' light green among them.
+
+Five negative controls were run and all five fired: removing the attack
+phrase, reintroducing the HP-delta guard, putting hits back on light green,
+restoring the floored integer percentage, and colouring only the first glyph.
 
 ### Done so far
 
