@@ -7,12 +7,37 @@ gameplay.** No emulation; `amiga.c` is the specification, never compiled.
 
 Build and run instructions live in README.md.
 
+## Status: accepted as it stands (owner decision, 2026-09-01)
+
+Review asked for changes three rounds running without a pass. The owner
+decided to treat the current result as sufficient and stop the loop, and
+accepted the tradeoff that the outstanding findings stay unfixed. No further
+changes were made after that decision and no further review was requested.
+
+**Unfixed findings from the final review**, recorded so they are not lost:
+
+- **HIGH — closing the overview leaves its tile layer painted over the game.**
+  `dungeonDisplayMap()` saves the screen, fills `g_overview`, waits for a key
+  and restores the saved `WINDOW`. But `terminalSaveScreen()` /
+  `terminalRestoreScreen()` copy only `WINDOW` cells, and `g_overview` is a
+  separate vector that `refresh()` draws last, so the reduced map stays
+  painted over the dungeon until something calls `clearScreen()`. The
+  overview screenshot test stops before the dismissal key, so it never covers
+  the transition. The fix is to clear `g_overview` on restore, and to extend
+  the test past the keypress.
+- Browser persistence can fail open.
+- Generated sources can remain stale.
+- Browser tests can report success without proving their claims.
+
+The last three are as the reviewer summarised them; I did not investigate
+them, so no detail here is mine to add.
+
 ## Where this actually is
 
-**Both of the brief's hard questions are answered yes**, and 13 of the 14
+**Both of the brief's hard questions are answered yes**, and 12 of the 14
 milestones are done. Umoria 5.7.15 runs on Henrik's frontend — natively and in
-a browser — with his tiles, his extended graphics, his colours, his reduced
-map, and saves that survive a reload.
+a browser — with his tiles, his extended graphics, his colours and his reduced
+map. Saving works natively; in the browser it does not (see below).
 
 | # | milestone | state |
 | --- | --- | --- |
