@@ -317,6 +317,27 @@ if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         # The data files are baked into the download, and the save directory
         # is IDBFS so a save survives closing the tab.
         set_target_properties(moria-amiga PROPERTIES SUFFIX ".html")
+
+        # The page carries the game plus two reference panels, generated from
+        # Umoria's own help files and data tables so they cannot drift away
+        # from the game they describe.
+        set(MORIA_WEB_SHELL "${MORIA_GENERATED_DIR}/shell.generated.html")
+        add_custom_command(
+            OUTPUT "${MORIA_WEB_SHELL}"
+            COMMAND "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_web_help.py"
+                    --umoria "${MORIA_UMORIA_DIR}"
+                    --template "${CMAKE_CURRENT_SOURCE_DIR}/src/web/shell.html"
+                    --out "${MORIA_WEB_SHELL}"
+            DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/web/shell.html"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_web_help.py"
+                    "${MORIA_UMORIA_DIR}/data/help.txt"
+                    "${MORIA_UMORIA_DIR}/data/rl_help.txt"
+                    "${MORIA_UMORIA_DIR}/src/data_player.cpp"
+            COMMENT "Building the browser page and its reference panels"
+            VERBATIM)
+        add_custom_target(moria-web-shell DEPENDS "${MORIA_WEB_SHELL}")
+        add_dependencies(moria-amiga moria-web-shell)
         target_link_options(moria-amiga PRIVATE
             -sASYNCIFY
             -sASYNCIFY_STACK_SIZE=131072
@@ -324,6 +345,7 @@ if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
             -sSTACK_SIZE=1048576
             -sFORCE_FILESYSTEM=1
             "--pre-js=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web_pre.js"
+            "--shell-file=${MORIA_WEB_SHELL}"
             "--preload-file=${MORIA_UMORIA_DIR}/data@/data"
             "--preload-file=${MORIA_UMORIA_DIR}/data/scores.dat@/scores.dat")
 
@@ -331,7 +353,8 @@ if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         # edit to the script silently keeps the previous link, and the change
         # appears to have had no effect.
         set_property(TARGET moria-amiga APPEND PROPERTY LINK_DEPENDS
-                     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web_pre.js")
+                     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web_pre.js"
+                     "${MORIA_WEB_SHELL}")
     endif()
 
     # Umoria looks for these relative to the working directory.
@@ -498,6 +521,12 @@ if(BUILD_TESTING)
             COMMENT "Rendering the real game's screens and rewriting the goldens"
             VERBATIM)
     endif()
+
+    add_test(NAME tool-web-help
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gen_web_help.py"
+                     --umoria "${MORIA_UMORIA_DIR}"
+                     --template "${CMAKE_CURRENT_SOURCE_DIR}/src/web/shell.html")
 
     add_test(NAME tool-iff-convert
              COMMAND "${Python3_EXECUTABLE}"

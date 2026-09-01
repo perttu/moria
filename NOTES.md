@@ -101,6 +101,25 @@ saves, shows the high scores, and stops. In the browser it then parks with
 "you can close this tab" rather than exiting. Reloading the page resumes from
 the save.
 
+## The browser page
+
+Emscripten's default shell is a logo and a text area around a canvas. It is
+replaced by `src/web/shell.html`: the game, a searchable command reference,
+and a races-and-classes table, as three linkable tabs.
+
+Both panels are **generated at build time from Umoria's own files** —
+`data/help.txt` and `data/rl_help.txt` for the commands, `data_player.cpp` for
+the tables — so the reference cannot drift from the game it describes. Nothing
+is hand-copied.
+
+The race and class tables are positional C initialisers with no field names,
+and the struct comments in `character.h` do not line up with the literals: the
+fields are at 24-27 and 1/9-16, not where counting the comments suggests. An
+off-by-one there produces a table that looks entirely plausible and is wrong,
+so `tool-web-help` checks values that can be confirmed by reading the game —
+a Half-Troll gets 12 hit points, a Dwarf cannot be a Mage, a Human is 100%
+experience.
+
 ## Extended display codes
 
 Standard Umoria draws whole categories with one letter: every centipede a
