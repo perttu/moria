@@ -129,6 +129,7 @@
     <button role="tab" data-panel="game" aria-selected="true">Game</button>
     <button role="tab" data-panel="commands" aria-selected="false">Commands</button>
     <button role="tab" data-panel="character" aria-selected="false">Races &amp; classes</button>
+    <button role="tab" data-panel="scores" aria-selected="false">Scores</button>
   </nav>
 </header>
 
@@ -154,6 +155,15 @@
   <div class="panel" id="panel-character" hidden>
 <!--RACES_AND_CLASSES-->
   </div>
+
+  <div class="panel" id="panel-scores" hidden>
+    <section>
+      <h3>Games played</h3>
+      <p id="scores-status">Every finished game, newest scores first. A game
+         is recorded when it ends — including when you save and quit.</p>
+      <table class="reference" id="scores-table"></table>
+    </section>
+  </div>
 </main>
 
 <script>
@@ -172,6 +182,7 @@
     });
     if (!found) { show('game'); return; }
     if (name === 'game') { canvas.focus(); }
+    if (name === 'scores') { loadScores(); }
   }
 
   tabs.forEach((tab) => {
@@ -184,7 +195,72 @@
   });
 
   window.addEventListener('hashchange', () => show(location.hash.slice(1) || 'game'));
-  show(location.hash.slice(1) || 'game');
+
+  // The score history, from the server the page came from. Loaded when the
+  // tab is opened, and again after it has been away, so a game finished in
+  // another tab shows up.
+  const scoresTable = document.getElementById('scores-table');
+  const scoresStatus = document.getElementById('scores-status');
+
+  function cell(text, className) {
+    const td = document.createElement('td');
+    if (className) { td.className = className; }
+    td.textContent = text;
+    return td;
+  }
+
+  function renderScores(scores) {
+    scoresTable.textContent = '';
+    const header = document.createElement('tr');
+    for (const name of ['#', 'Name', 'Race', 'Class', 'Points', 'Level',
+                        'Depth', 'HP', 'Ended by']) {
+      const th = document.createElement('th');
+      th.textContent = name;
+      header.appendChild(th);
+    }
+    scoresTable.appendChild(header);
+
+    scores.forEach((score, index) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(String(index + 1)));
+      row.appendChild(cell(score.name || '-', 'key'));
+      row.appendChild(cell(score.race || '-'));
+      row.appendChild(cell(score['class'] || '-'));
+      row.appendChild(cell(String(score.points ?? 0)));
+      row.appendChild(cell(String(score.level ?? 0)));
+      // Moria counts depth in levels of fifty feet.
+      row.appendChild(cell(((score.deepest_depth ?? 0) * 50) + ' ft'));
+      row.appendChild(cell((score.current_hp ?? 0) + '/' + (score.max_hp ?? 0)));
+      row.appendChild(cell(score.died_from || '-'));
+      scoresTable.appendChild(row);
+    });
+  }
+
+  function loadScores() {
+    scoresStatus.textContent = 'Loading…';
+    fetch('scores', {headers: {'Accept': 'application/json'}})
+      .then((response) => {
+        if (!response.ok) { throw new Error('HTTP ' + response.status); }
+        return response.json();
+      })
+      .then((scores) => {
+        if (!scores.length) {
+          scoresStatus.textContent = 'No games recorded yet. Finish one — ' +
+            'Ctrl-X saves and quits, and that counts.';
+          scoresTable.textContent = '';
+          return;
+        }
+        scoresStatus.textContent = scores.length + ' game' +
+          (scores.length === 1 ? '' : 's') + ' recorded, best first.';
+        renderScores(scores);
+      })
+      .catch((error) => {
+        scoresStatus.textContent =
+          'Could not reach the score server (' + error.message + '). ' +
+          'Serve the game with tools/serve.py to keep a history.';
+        scoresTable.textContent = '';
+      });
+  }
 
   // Filtering the command list, so "door" finds every way to open one.
   const search = document.getElementById('search');
@@ -195,6 +271,11 @@
       row.hidden = needle !== '' && !row.textContent.toLowerCase().includes(needle);
     });
   });
+
+  // Opened last, once every panel's helpers exist: show() reaches into the
+  // score panel, and running it earlier would hit those bindings before they
+  // are initialised.
+  show(location.hash.slice(1) || 'game');
 
   var Module = {
     canvas: canvas,

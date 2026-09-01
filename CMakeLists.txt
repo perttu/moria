@@ -287,6 +287,7 @@ if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
         ${MORIA_UMORIA_SOURCES}
         src/engine/amiga_colours.cpp
         src/engine/amiga_overview.cpp
+        src/engine/amiga_scores.cpp
         src/engine/amiga_web.cpp
         src/engine/amiga_curses.cpp
         src/engine/amiga_sprites.cpp
@@ -521,6 +522,10 @@ if(BUILD_TESTING)
             COMMENT "Rendering the real game's screens and rewriting the goldens"
             VERBATIM)
     endif()
+
+    add_test(NAME tool-serve
+             COMMAND "${Python3_EXECUTABLE}"
+                     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_serve.py")
 
     add_test(NAME tool-web-help
              COMMAND "${Python3_EXECUTABLE}"

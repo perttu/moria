@@ -161,6 +161,34 @@ GAME_SUBSTITUTIONS = [
     ),
 ]
 
+SCORES_SUBSTITUTIONS = [
+    (
+        "the includes, so recordNewHighScore can report the game",
+        '''#include "headers.h"
+#include "version.h"''',
+        '''#include "headers.h"
+#include "version.h"
+#include "amiga_scores.hpp"''',
+    ),
+    (
+        "recordNewHighScore, to report the finished game",
+        """    (void) strcpy(new_entry.died_from, tmp);
+""",
+        """    (void) strcpy(new_entry.died_from, tmp);
+
+    // Report the finished game, so a history of play can be kept. Umoria's
+    // own scores.dat is still written below, exactly as before; this is an
+    // addition, not a replacement.
+    moria::engine::reportScore(
+        new_entry.points, new_entry.level, new_entry.dungeon_depth,
+        new_entry.deepest_dungeon_depth, new_entry.mhp, new_entry.chp,
+        (char) new_entry.gender, character_races[new_entry.race].name,
+        classes[new_entry.character_class].title, new_entry.name,
+        new_entry.died_from);
+""",
+    ),
+]
+
 HEADERS_SUBSTITUTIONS = [
     (
         "the platform check, which has never heard of Emscripten",
@@ -175,6 +203,7 @@ SUBSTITUTIONS_BY_FILE = {
     "dungeon.cpp": DUNGEON_SUBSTITUTIONS,
     "headers.h": HEADERS_SUBSTITUTIONS,
     "game.cpp": GAME_SUBSTITUTIONS,
+    "scores.cpp": SCORES_SUBSTITUTIONS,
 }
 
 # Replaced wholesale by src/engine/, so they are not copied at all.
