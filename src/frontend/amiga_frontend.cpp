@@ -134,12 +134,14 @@ int translate_key(const SDL_KeyboardEvent &key) {
         default: break;
     }
 
-    // SDL keycodes for printable keys are their Unicode values.
-    const SDL_Keycode code = key.key;
+    // SDL_KeyboardEvent::key is the *unmodified* keycode, so Shift+8 arrives
+    // as '8'. Moria needs the character the player actually typed: '*' lists
+    // the inventory, '>' and '<' take the stairs, '?' opens help. Asking SDL
+    // to apply the modifiers gives that, and stays correct on a keyboard
+    // layout where those characters live elsewhere.
+    const SDL_Keycode code =
+        SDL_GetKeyFromScancode(key.scancode, key.mod, false);
     if (code >= 32 && code < 127) {
-        if ((key.mod & SDL_KMOD_SHIFT) != 0 && code >= 'a' && code <= 'z') {
-            return code - 'a' + 'A';
-        }
         return static_cast<int>(code);
     }
     return kKeyNone;
@@ -163,6 +165,15 @@ KeyEvent from_event(const SDL_KeyboardEvent &key) {
 }
 
 }  // namespace
+
+int translate_key_press(int scancode, unsigned int modifiers) {
+    SDL_KeyboardEvent event{};
+    event.scancode = static_cast<SDL_Scancode>(scancode);
+    event.key = SDL_GetKeyFromScancode(static_cast<SDL_Scancode>(scancode),
+                                       static_cast<SDL_Keymod>(modifiers), true);
+    event.mod = static_cast<SDL_Keymod>(modifiers);
+    return translate_key(event);
+}
 
 bool init(const Options &options) {
     g.scale = std::max(1, options.scale);

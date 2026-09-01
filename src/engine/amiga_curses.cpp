@@ -26,6 +26,7 @@ struct OverviewCell {
     unsigned char code;
 };
 std::vector<OverviewCell> g_overview;
+std::vector<OverviewCell> g_overview_saved;
 
 std::string g_script;
 std::string g_script_screenshot;
@@ -100,6 +101,17 @@ int overwrite(WINDOW *source, WINDOW *destination) {
     std::memcpy(destination->cells, source->cells, sizeof(source->cells));
     destination->cursor_row = source->cursor_row;
     destination->cursor_col = source->cursor_col;
+
+    // The overview is a second layer, not part of the character grid, so it
+    // has to travel with it. Without this, dismissing the reduced map leaves
+    // it painted over the dungeon: terminalRestoreScreen() would put the old
+    // characters back while refresh() kept drawing the map on top.
+    if (source == stdscr) {
+        g_overview_saved = g_overview;      // terminalSaveScreen()
+    } else if (destination == stdscr) {
+        g_overview = g_overview_saved;      // terminalRestoreScreen()
+    }
+
     g_dirty = true;
     return OK;
 }

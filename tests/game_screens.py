@@ -52,11 +52,17 @@ OVERVIEW = TOWN + "M"
 # a space and a 'y' accept its warning, then ^D jumps to level 5.
 DUNGEON = " yam\\eaFenwick\\n \\cD5\\n"
 
+# Dismissing the overview must put the screen back exactly as it was. The
+# reduced map is a second layer, not part of the character grid, so a screen
+# restore that forgets it leaves the map painted over the dungeon.
+OVERVIEW_DISMISSED = OVERVIEW + " "
+
 SCREENS = {
     "creation": (CREATION, ()),
     "character-sheet": (SHEET, ()),
     "town": (TOWN, ()),
     "overview": (OVERVIEW, ()),
+    "overview-dismissed": (OVERVIEW_DISMISSED, ()),
     "dungeon": (DUNGEON, ("-w",)),
 }
 
@@ -299,6 +305,21 @@ def main(argv=None):
         check_viewport_uses_tiles(rendered["town"], args.assets, report)
         check_viewport_uses_tiles(rendered["dungeon"], args.assets, report)
         check_overview_uses_small_atlas(rendered["overview"], args.assets, report)
+        # Everything below the message line must come back exactly. Row 0 is
+        # excluded because the key that dismisses the map also clears the
+        # pending message, which is the game behaving normally.
+        dismissed = rendered["overview-dismissed"]
+        town = rendered["town"]
+        differing = [y for y in range(CELL, SCREEN_HEIGHT)
+                     if dismissed[y] != town[y]]
+        if differing:
+            raise Failure("dismissing the overview did not restore the screen: "
+                          "%d scanlines still differ from the town, first at "
+                          "y=%d. Its tile layer is most likely still painted "
+                          "on top." % (len(differing), differing[0]))
+        report("ok   dismissing the overview restores the screen below the "
+               "message line, with no tile layer left behind")
+
         check_save_and_reload(binary, args.workdir, rendered["town"], report)
 
         # Determinism: the same seed and the same keys must produce the same

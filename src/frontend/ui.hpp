@@ -69,6 +69,10 @@ struct KeyEvent {
     bool gui = false;  // Command on macOS
 };
 
+// Exposed for tests: the byte Moria receives for a raw key press. Takes
+// plain integers so nothing above this header needs SDL's types.
+int translate_key_press(int scancode, unsigned int modifiers);
+
 bool init(const Options &options);
 void shutdown();
 

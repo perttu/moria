@@ -7,30 +7,31 @@ gameplay.** No emulation; `amiga.c` is the specification, never compiled.
 
 Build and run instructions live in README.md.
 
-## Status: accepted as it stands (owner decision, 2026-09-01)
+## Status
 
-Review asked for changes three rounds running without a pass. The owner
-decided to treat the current result as sufficient and stop the loop, and
-accepted the tradeoff that the outstanding findings stay unfixed. No further
-changes were made after that decision and no further review was requested.
+Accepted by the owner on 2026-09-01 after three review rounds without a pass,
+with the outstanding findings left unfixed. Two of them were then reopened by
+the owner after playing the game, and are now fixed:
 
-**Unfixed findings from the final review**, recorded so they are not lost:
+- **The reduced map stayed painted over the dungeon after dismissal.** The
+  overview is a second layer, not part of the character grid, and
+  `terminalSaveScreen()` / `terminalRestoreScreen()` copied only `WINDOW`
+  cells. `overwrite()` now carries the overlay with the screen it belongs to.
+- **Shifted characters never reached the game.** `SDL_KeyboardEvent::key` is
+  the *unmodified* keycode, so Shift+8 arrived as `8`. That made `*`
+  (inventory), `?` (help), `!`, `:`, `_`, `+` (Henrik's look command) and --
+  worst of all -- `>` and `<` unreachable, so **the stairs could not be
+  taken from the keyboard at all**. The frontend now asks SDL to apply the
+  modifiers, which is also layout-correct.
 
-- **HIGH — closing the overview leaves its tile layer painted over the game.**
-  `dungeonDisplayMap()` saves the screen, fills `g_overview`, waits for a key
-  and restores the saved `WINDOW`. But `terminalSaveScreen()` /
-  `terminalRestoreScreen()` copy only `WINDOW` cells, and `g_overview` is a
-  separate vector that `refresh()` draws last, so the reduced map stays
-  painted over the dungeon until something calls `clearScreen()`. The
-  overview screenshot test stops before the dismissal key, so it never covers
-  the transition. The fix is to clear `g_overview` on restore, and to extend
-  the test past the keypress.
+Still unfixed from that review, as accepted:
+
 - Browser persistence can fail open.
 - Generated sources can remain stale.
 - Browser tests can report success without proving their claims.
 
-The last three are as the reviewer summarised them; I did not investigate
-them, so no detail here is mine to add.
+Those three are as the reviewer summarised them; I did not investigate them,
+so no detail here is mine to add.
 
 ## Where this actually is
 

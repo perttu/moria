@@ -373,6 +373,12 @@ if(BUILD_TESTING)
     target_link_libraries(gfx-corr-test PRIVATE moria-tiles)
     add_test(NAME gfx-corr COMMAND gfx-corr-test)
 
+    # The keyboard mapping. A command character that cannot be typed is
+    # invisible in every screenshot test.
+    add_executable(key-test tests/key_test.cpp)
+    target_link_libraries(key-test PRIVATE moria-frontend)
+    add_test(NAME keys COMMAND key-test)
+
     # Pixels, not exit codes. This renders every deterministic screen and
     # compares it: the title against moria_title.iff itself, specific dungeon
     # cells against the atlas tile that belongs at that screen position, and
