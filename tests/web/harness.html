@@ -13,6 +13,10 @@
     args=--scale,1   passed straight through to main() as argv
     keys=Space,m     dispatched as keydown once the runtime is up
     delay=1500       milliseconds to wait before dispatching
+    verify=save      after verifyDelay, read the save back out of the
+                     browser's storage, so persistence can be checked without
+                     needing a second browser session
+    verifyDelay=6000 milliseconds to wait before that check
 -->
 <meta charset="utf-8">
 <title>moria web harness</title>
@@ -63,6 +67,22 @@
     }
   }
 
+  // Reads the save back out of the browser's own storage. This is the only
+  // way to prove a save actually persisted: the in-memory filesystem would
+  // look identical either way.
+  function verifyStoredSave() {
+    try {
+      const stored = localStorage.getItem("moria.save");
+      if (!stored) {
+        log("save", "nothing in local storage");
+        return;
+      }
+      log("save", "read back " + atob(stored).length + " bytes");
+    } catch (e) {
+      log("save", "could not read it back: " + e);
+    }
+  }
+
   window.addEventListener("load", () => {
     const delay = parseInt(params.get("delay") || "1500", 10);
     setTimeout(() => {
@@ -71,6 +91,10 @@
       }
       // Give the main loop a few frames to redraw before the screenshot.
       setTimeout(() => { document.title = "ready"; }, 400);
+      if (params.get("verify") === "save") {
+        setTimeout(verifyStoredSave,
+                   parseInt(params.get("verifyDelay") || "6000", 10));
+      }
     }, delay);
   });
 </script>

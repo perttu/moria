@@ -153,50 +153,41 @@ def check_title(pixels, size, assets_dir, report):
     report("ok   the browser draws the title pixel-identically to moria_title.iff")
 
 
-def check_indexeddb_saves(chrome, port, workdir, report):
-    """Save in one page load, and find the save still there in the next.
+def check_browser_saves(chrome, port, workdir, report):
+    """Save in the browser, then read the save back out of its storage.
 
-    Emscripten's filesystem is memory only, so without IDBFS a save would be
-    gone the moment the tab closed. Both runs share a browser profile because
-    that is where IndexedDB lives.
+    Emscripten's filesystem is memory only, so without this the save would be
+    gone the moment the tab closed. The read-back is done from the page rather
+    than by opening a second browser session: two `chrome --screenshot` runs
+    get separate temporary profiles and so separate storage, and forcing a
+    shared one with --user-data-dir hangs this headless build outright.
     """
-    # KNOWN FAILURE: the run below hangs. Umoria's exitProgram() calls exit(0)
-    # straight after terminalRestore(), and exit() from inside a stack that
-    # Asyncify has unwound does not return control to the browser. The save is
-    # written to the in-memory filesystem first, but the page freezes before
-    # IndexedDB can be flushed. Left in, and off by default, because it
-    # describes exactly what has to be fixed.
-    profile = os.path.join(workdir, "profile")
-    base = "http://127.0.0.1:%d/harness.html?app=moria-amiga&args=" % port
+    keys = "am%5CeaFenwick%5Cn%20%20%5CcX%20%20%20"
+    url = ("http://127.0.0.1:%d/harness.html?app=moria-amiga"
+           "&args=--scale,1,-n,-s,12345,--keys,%s"
+           "&verify=save&verifyDelay=9000" % (port, keys))
 
-    # Create a character, walk into the town, then ^X to save and quit.
-    keys = "am\\eaFenwick\\n \\cX "
-    saving = screenshot(chrome,
-                        base + "--scale,1,-n,-s,12345,--keys," + keys,
-                        os.path.join(workdir, "web-saving.png"),
-                        (SCREEN_WIDTH, SCREEN_HEIGHT), profile=profile)
-    _size, _pixels = load_png(saving)
-    report("ok   the browser build saved and exited")
+    command = [
+        chrome, "--headless=new", "--disable-gpu", "--no-sandbox",
+        "--enable-unsafe-swiftshader", "--virtual-time-budget=30000",
+        "--dump-dom", url,
+    ]
+    result = subprocess.run(command, capture_output=True, text=True, timeout=180)
+    dom = result.stdout
 
-    # A second page load, same profile: no -n, so it must find the save.
-    loaded = screenshot(chrome, base + "--scale,1,-s,12345",
-                        os.path.join(workdir, "web-loaded.png"),
-                        (SCREEN_WIDTH, SCREEN_HEIGHT), profile=profile)
-    size, pixels = load_png(loaded)
-    if size != (SCREEN_WIDTH, SCREEN_HEIGHT):
-        raise Failure("the reloaded page rendered %dx%d" % size)
-    if all(pixel == (0, 0, 0) for pixel in pixels):
-        raise Failure("the reloaded page is blank")
+    if "stored a save of" not in dom:
+        raise Failure("the browser game never stored a save\n%s"
+                      % dom[dom.find('<pre id="log"'):][:600])
+    if "read back" not in dom:
+        raise Failure("the save could not be read back out of browser "
+                      "storage\n%s" % dom[dom.find('<pre id="log"'):][:600])
 
-    # A game that failed to find its save starts character creation, which
-    # asks for a race on the bottom rows. A restored game shows the town.
-    restored_rows = {y for y in range(SCREEN_HEIGHT)
-                     if any(pixels[y * SCREEN_WIDTH + x] != (0, 0, 0)
-                            for x in range(MAP_COL_OFFSET * CELL, SCREEN_WIDTH))}
-    if not restored_rows:
-        raise Failure("the reloaded page drew nothing in the map area, so the "
-                      "save was not restored")
-    report("ok   the save survived the page reload through IndexedDB")
+    stored = int(dom.split("stored a save of ")[1].split(" bytes")[0])
+    read_back = int(dom.split("read back ")[1].split(" bytes")[0])
+    if stored != read_back:
+        raise Failure("stored %d bytes but read back %d" % (stored, read_back))
+    report("ok   the browser saved %d bytes and read them back from storage"
+           % stored)
 
 
 def main(argv=None):
@@ -210,10 +201,6 @@ def main(argv=None):
     ap.add_argument("--game-golden", help="golden hashes for the real game's "
                                           "screens, for the browser game build")
     ap.add_argument("--keep", action="store_true", help="keep the rendered PNGs")
-    ap.add_argument("--check-saves", action="store_true",
-                    help="also check that a save survives a page reload. Off "
-                         "by default: saving in the browser currently hangs "
-                         "the tab (see NOTES.md), so this does not pass yet.")
     args = ap.parse_args(argv)
 
     lines = []
@@ -308,8 +295,7 @@ def main(argv=None):
                                   % (golden["creation"][:16], got[:16]))
                 report("ok   and draws it byte-identically to the native build")
 
-                if args.check_saves:
-                    check_indexeddb_saves(chrome, port, workdir, report)
+                check_browser_saves(chrome, port, workdir, report)
 
             if args.keep:
                 report("renders kept in %s" % workdir)

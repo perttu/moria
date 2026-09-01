@@ -131,6 +131,36 @@ DUNGEON_SUBSTITUTIONS = [
     ),
 ]
 
+GAME_SUBSTITUTIONS = [
+    (
+        "the includes, so exitProgram can reach the browser exit",
+        '''#include "headers.h"
+#include "version.h"''',
+        '''#include "headers.h"
+#include "version.h"
+#include "amiga_web.hpp"''',
+    ),
+    (
+        "exitProgram, which a browser must not do",
+        """void exitProgram() {
+    flushInputBuffer();
+    terminalRestore();
+    exit(0);
+}""",
+        """void exitProgram() {
+    flushInputBuffer();
+    terminalRestore();
+#ifdef __EMSCRIPTEN__
+    // Never returns. exit() would tear the runtime down before the save
+    // reaches IndexedDB, and from an Asyncify-unwound stack it does not hand
+    // control back to the browser at all.
+    moria::engine::webExitToBrowser();
+#endif
+    exit(0);
+}""",
+    ),
+]
+
 HEADERS_SUBSTITUTIONS = [
     (
         "the platform check, which has never heard of Emscripten",
@@ -144,6 +174,7 @@ SUBSTITUTIONS_BY_FILE = {
     "ui_io.cpp": UI_IO_SUBSTITUTIONS,
     "dungeon.cpp": DUNGEON_SUBSTITUTIONS,
     "headers.h": HEADERS_SUBSTITUTIONS,
+    "game.cpp": GAME_SUBSTITUTIONS,
 }
 
 # Replaced wholesale by src/engine/, so they are not copied at all.

@@ -20,4 +20,10 @@ const char *webMountSaves();
 // Writes the save directory back to IndexedDB.
 void webFlushSaves();
 
+// The browser's replacement for exit(). Flushes saves, waits for the write to
+// land, and then parks: the last screen stays up and the tab stays
+// responsive. Never returns. On native builds this is a no-op and the caller
+// goes on to exit() as usual.
+void webExitToBrowser();
+
 }  // namespace moria::engine

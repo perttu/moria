@@ -24,21 +24,25 @@ the owner after playing the game, and are now fixed:
   taken from the keyboard at all**. The frontend now asks SDL to apply the
   modifiers, which is also layout-correct.
 
+A third was then reopened and fixed too: **browser saving**, which now works
+and is asserted on every `web-smoke` run. See below — my original explanation
+of why it failed was wrong.
+
 Still unfixed from that review, as accepted:
 
-- Browser persistence can fail open.
 - Generated sources can remain stale.
 - Browser tests can report success without proving their claims.
 
-Those three are as the reviewer summarised them; I did not investigate them,
-so no detail here is mine to add.
+Those two are as the reviewer summarised them; I did not investigate them, so
+no detail here is mine to add.
 
 ## Where this actually is
 
-**Both of the brief's hard questions are answered yes**, and 12 of the 14
+**Both of the brief's hard questions are answered yes**, and 13 of the 14
 milestones are done. Umoria 5.7.15 runs on Henrik's frontend — natively and in
-a browser — with his tiles, his extended graphics, his colours and his reduced
-map. Saving works natively; in the browser it does not (see below).
+a browser — with his tiles, his extended graphics, his colours, his reduced
+map, and saves that persist on both. Only the macOS bundle is outstanding, and
+it needs a Mac.
 
 | # | milestone | state |
 | --- | --- | --- |
@@ -54,34 +58,41 @@ map. Saving works natively; in the browser it does not (see below).
 | 10 | save/load | done — round-trip checked pixel for pixel |
 | 11 | macOS .app | blocked: no Mac here |
 | 12 | Emscripten | done — the game runs in Chrome, byte-identical to native |
-| 13 | IndexedDB saves | **not working** — saving hangs the tab, see below |
+| 13 | browser saves | done — saved and read back, via localStorage |
 | 14 | pixel regression tests | done, including the real game's screens |
-
-**Twelve of the fourteen milestones are done.** Umoria runs on Henrik's
-frontend natively and in the browser, and the browser's character creation
-screen is byte-identical to the native one. Two are outstanding: the macOS
-bundle, which needs a Mac, and browser saves, which are written but hang the
-tab on the way out.
 
 The browser build compiles with **Asyncify**, which unwinds and resumes the
 stack around `ui::delay()`. That is what lets Umoria keep reading keys from
 deep inside its call stack without freezing the tab: the engine keeps its
-structure, and the browser keeps its event loop. Saves are an IDBFS mount at
-`/saves`, read in at startup and written back from `endwin()` — which is where
-`exitProgram()` ends up after `saveGame()`.
+structure, and the browser keeps its event loop. The browser's character
+creation screen is byte-identical to the native one.
 
-**Browser saving does not work yet, and the reason is known.** Loading is
-fine: the IDBFS mount and the initial `syncfs(true)` complete, and a game
-started in the browser plays normally. Saving does not: `exitProgram()` calls
-`exit(0)` immediately after `terminalRestore()`, and `exit()` from inside a
-stack Asyncify has already unwound never returns control to the browser, so
-the tab freezes before IndexedDB can be flushed. Making the flush
-fire-and-forget did not help, which is what points at `exit()` rather than at
-the sync. The check for this lives in `tests/web_smoke.py` behind
-`--check-saves`, off by default and documented in place, so it is a described
-defect rather than a missing test. Fixing it probably means patching
-`exitProgram()` — a fourth substitution — to hand control back to the browser
-instead of calling `exit()`.
+**Browser saving works, and my earlier diagnosis of why it did not was
+wrong.** I reported that `exit()` under Asyncify froze the tab. It does not.
+What actually happened:
+
+- The failing test used `--user-data-dir` to share storage between two page
+  loads. **That flag alone hangs this headless Chrome**, on any page, save
+  path or not. The feature was never the thing failing; the harness was.
+- IDBFS's `syncfs()` never called back here — not on load, not on store.
+  Waiting for it left the module spinning; holding startup open with a run
+  dependency left `main()` never running at all.
+
+So persistence is done by hand, and with **localStorage rather than
+IndexedDB** — a deliberate deviation from the brief. localStorage is
+synchronous: the restore simply happens in `preRun`, with no callback to miss
+and no interaction with Asyncify. A Moria save is about 5 kB against a budget
+of about 5 MB. `src/engine/web_pre.js` holds both ends, and a `beforeunload`
+handler flushes for a player who just closes the tab.
+
+`exitProgram()` is still patched, for a different and real reason: it calls
+`exit(0)`, which would tear the runtime down with nothing to return to. The
+browser build calls `emscripten_exit_with_live_runtime()` instead, so the last
+screen stays on the canvas and the tab stays responsive.
+
+Verified end to end in headless Chrome: the game saves 4850 bytes — the same
+size as the native save — and the page reads all 4850 back out of storage.
+`web-smoke` asserts it on every run.
 
 ## Extended display codes
 

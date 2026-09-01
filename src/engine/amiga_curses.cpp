@@ -80,9 +80,6 @@ WINDOW *initscr() {
 }
 
 int endwin() {
-    // exitProgram() calls terminalRestore() -> here, after saveGame(), so this
-    // is where a browser save reaches IndexedDB.
-    moria::engine::webFlushSaves();
     if (g_running) {
         moria::ui::shutdown();
         g_running = false;

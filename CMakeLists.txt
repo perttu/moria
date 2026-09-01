@@ -322,11 +322,16 @@ if(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
             -sASYNCIFY_STACK_SIZE=131072
             -sALLOW_MEMORY_GROWTH=1
             -sSTACK_SIZE=1048576
-            -sEXPORTED_RUNTIME_METHODS=ccall
             -sFORCE_FILESYSTEM=1
-            -lidbfs.js
+            "--pre-js=${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web_pre.js"
             "--preload-file=${MORIA_UMORIA_DIR}/data@/data"
             "--preload-file=${MORIA_UMORIA_DIR}/data/scores.dat@/scores.dat")
+
+        # CMake does not track --pre-js, so say so explicitly: without this an
+        # edit to the script silently keeps the previous link, and the change
+        # appears to have had no effect.
+        set_property(TARGET moria-amiga APPEND PROPERTY LINK_DEPENDS
+                     "${CMAKE_CURRENT_SOURCE_DIR}/src/engine/web_pre.js")
     endif()
 
     # Umoria looks for these relative to the working directory.

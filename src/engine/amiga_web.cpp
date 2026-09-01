@@ -7,62 +7,32 @@
 #include <cstdio>
 
 namespace moria::engine {
-namespace {
-
-// Set from JavaScript when a syncfs call completes. Asyncify lets us wait for
-// it without returning to the browser's event loop by hand.
-volatile int g_sync_state = 0;  // 0 pending, 1 done, -1 failed
-
-void waitForSync(const char *what) {
-    const int kTimeoutMs = 10000;
-    int waited = 0;
-    while (g_sync_state == 0 && waited < kTimeoutMs) {
-        emscripten_sleep(10);
-        waited += 10;
-    }
-    if (g_sync_state != 1) {
-        std::fprintf(stderr, "moria: %s did not complete (%d)\n", what,
-                     g_sync_state);
-    }
-}
-
-}  // namespace
-
-extern "C" EMSCRIPTEN_KEEPALIVE void moriaSyncDone(int ok) {
-    g_sync_state = ok ? 1 : -1;
-}
-
 const char *webMountSaves() {
-    g_sync_state = 0;
-    EM_ASM({
-        try {
-            FS.mkdir('/saves');
-        } catch (e) {
-            // already there
-        }
-        FS.mount(IDBFS, {}, '/saves');
-        // true: bring what IndexedDB already holds into the in-memory FS.
-        FS.syncfs(true, function (err) {
-            Module.ccall('moriaSyncDone', null, ['number'], [err ? 0 : 1]);
-        });
-    });
-    waitForSync("loading saves from IndexedDB");
+    // The mount and the initial load happen in src/engine/web_pre.js, before
+    // main() runs, held open by a run dependency. Nothing to wait for here.
     return "/saves/game.sav";
 }
 
 void webFlushSaves() {
-    // Deliberately not waited on. This runs from endwin(), which
-    // exitProgram() calls immediately before exit(0), and blocking there --
-    // inside a stack Asyncify is already unwinding -- wedges the page.
-    // IndexedDB writes are fast and the browser finishes them after the
-    // module has stopped.
     EM_ASM({
-        FS.syncfs(false, function (err) {
-            if (err) {
-                console.error('moria: could not write saves to IndexedDB', err);
-            }
-        });
+        if (Module.moriaFlushSaves) {
+            Module.moriaFlushSaves();
+        }
     });
+}
+
+void webExitToBrowser() {
+    webFlushSaves();
+
+    // Umoria ends by calling exit(0). A browser build must not: that tears
+    // the runtime down before the IndexedDB write can land, and there is
+    // nothing to return to anyway. This leaves main() without stopping the
+    // runtime, so the pending write completes, the last screen stays on the
+    // canvas, and the tab stays responsive. Closing a game in a browser means
+    // closing the tab.
+    std::printf("moria: saved. You can close this tab.\n");
+    std::fflush(stdout);
+    emscripten_exit_with_live_runtime();
 }
 
 }  // namespace moria::engine
