@@ -82,25 +82,35 @@ Color message(const char *text) {
     return moria::engine::colours::forText(kMessageRow, 0, text);
 }
 
-// Counts pixels of one colour on one text row of the saved screen.
+// Counts pixels on one text row of the saved screen: those matching `wanted`,
+// and every pixel that is not the black background. A row is correctly
+// coloured only when those two counts are equal -- otherwise some of the text
+// is one colour and the rest another.
+//
 // save_screenshot() writes an uncompressed 24-bit bottom-up BMP.
-int countPixels(const char *path, int text_row, moria::gfx::Rgb wanted) {
+struct RowPixels {
+    int matching = 0;
+    int foreground = 0;
+};
+
+RowPixels countRow(const char *path, int text_row, moria::gfx::Rgb wanted) {
+    RowPixels counted;
+
     FILE *file = fopen(path, "rb");
     if (file == nullptr) {
-        return -1;
+        return counted;
     }
 
     unsigned char header[54];
     if (fread(header, 1, sizeof(header), file) != sizeof(header)) {
         fclose(file);
-        return -1;
+        return counted;
     }
     const int width = *reinterpret_cast<int *>(header + 18);
     const int height = *reinterpret_cast<int *>(header + 22);
     const int offset = *reinterpret_cast<int *>(header + 10);
     const int stride = ((width * 3) + 3) & ~3;
 
-    int found = 0;
     for (int line = 0; line < 8; ++line) {
         const int y = text_row * 8 + line;
         const int source_row = height - 1 - y;  // bottom-up
@@ -112,14 +122,17 @@ int countPixels(const char *path, int text_row, moria::gfx::Rgb wanted) {
             if (fread(bgr, 1, 3, file) != 3) {
                 break;
             }
+            if (bgr[0] != 0 || bgr[1] != 0 || bgr[2] != 0) {
+                ++counted.foreground;
+            }
             if (bgr[2] == wanted.r && bgr[1] == wanted.g && bgr[0] == wanted.b) {
-                ++found;
+                ++counted.matching;
             }
         }
     }
 
     fclose(file);
-    return found;
+    return counted;
 }
 
 }  // namespace
@@ -144,12 +157,46 @@ int main() {
     setHitPoints(1, 100);
     expect("hit points at 1%", moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"),
            Color::Danger);
+
+    // The boundaries, where an integer percentage would floor and widen the
+    // red and yellow bands by almost a whole point.
+    setHitPoints(250, 1000);
+    expect("hit points at exactly 25.0%",
+           moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"), Color::Danger);
+    setHitPoints(251, 1000);
+    expect("hit points at 25.1%",
+           moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"), Color::Warning);
+    setHitPoints(750, 1000);
+    expect("hit points at exactly 75.0%",
+           moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"), Color::Warning);
+    setHitPoints(751, 1000);
+    expect("hit points at 75.1%",
+           moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"), Color::Success);
+    setHitPoints(1000, 1000);
+    expect("hit points at 1000/1000",
+           moria::engine::colours::forText(kCurrentHpRow, 0, "CHP"), Color::Normal);
     setHitPoints(100, 100);
 
     py.misc.current_mana = 10;
     py.misc.mana = 100;
     expect("mana at 10%", moria::engine::colours::forText(kManaRow, 0, "MANA"),
            Color::Danger);
+    py.misc.current_mana = 250;
+    py.misc.mana = 1000;
+    expect("mana at exactly 25.0%",
+           moria::engine::colours::forText(kManaRow, 0, "MANA"), Color::Danger);
+    py.misc.current_mana = 251;
+    expect("mana at 25.1%",
+           moria::engine::colours::forText(kManaRow, 0, "MANA"), Color::Warning);
+    py.misc.current_mana = 750;
+    expect("mana at exactly 75.0%",
+           moria::engine::colours::forText(kManaRow, 0, "MANA"), Color::Warning);
+    py.misc.current_mana = 751;
+    expect("mana at 75.1%",
+           moria::engine::colours::forText(kManaRow, 0, "MANA"), Color::Success);
+    py.misc.current_mana = 1000;
+    expect("mana at 1000/1000",
+           moria::engine::colours::forText(kManaRow, 0, "MANA"), Color::Normal);
     py.misc.current_mana = 0;
     py.misc.mana = 0;
     expect("no mana at all, as a warrior has",
@@ -174,43 +221,69 @@ int main() {
     expect("the Weak indicator",
            moria::engine::colours::forText(kStatusRow, 0, "Weak  "), Color::Danger);
 
-    // --- Amiga.doc's message colours. The stat and wound cases are decided
-    // from the game's state, not from the words.
+    // --- Amiga.doc's message colours.
+    //
+    // These run in the order the engine actually uses: Umoria prints the
+    // message first and applies the consequence afterwards. Each case checks
+    // both halves -- that the message which caused something is coloured, and
+    // that the next ordinary message is not coloured by the change that has
+    // since landed.
     resetPlayer();
-    py.stats.current[2] = 15;  // wisdom drained since the last message
-    expect("a message printed as a stat drops", message("You feel very naive."),
-           Color::StatLoss);
+    expect("a monster's attack, printed before the damage lands",
+           message("The kobold hits you."), Color::Danger);
+    py.misc.current_hp = 60;  // executeAttackOnPlayer() runs now
+    expect("the next ordinary message, after the damage landed",
+           message("You have 3 Rations of Food (e)."), Color::Normal);
 
     resetPlayer();
-    py.stats.current[3] = 19;  // dexterity raised since the last message
-    expect("a message printed as a stat rises", message("You feel more limber!"),
+    expect("a stat drain, printed before the stat drops",
+           message("You feel weaker."), Color::StatLoss);
+    py.stats.current[0] = 16;  // playerStatRandomDecrease() runs now
+    expect("the next ordinary message, after the stat dropped",
+           message("You have 3 Rations of Food (e)."), Color::Normal);
+
+    resetPlayer();
+    expect("picking a lock, printed before the experience is awarded",
+           message("You have picked the lock."), Color::Good);
+    py.misc.exp++;  // py.misc.exp++ runs now
+    expect("the next ordinary message, after the experience was awarded",
+           message("You have 3 Rations of Food (e)."), Color::Normal);
+
+    // A drain that was resisted must not read as a drain, even though its
+    // text contains one.
+    expect("a sustained drain",
+           message("You feel weaker for a moment, but it passes."),
+           Color::Warning);
+    expect("a resisted disease",
+           message("Your body resists the effects of the disease."),
+           Color::Warning);
+
+    expect("a stat gain", message("Wow!  What bulging muscles!"),
            Color::StatGain);
+    expect("a restored characteristic",
+           message("You feel your strength returning."), Color::StatGain);
 
-    resetPlayer();
-    py.misc.current_hp = 60;
-    expect("a message printed as you are wounded", message("The kobold hits you."),
-           Color::Danger);
+    expect("a kill", message("You have slain the kobold."), Color::Kill);
+    expect("a monster dying", message("The kobold dies in a fit of agony."),
+           Color::Kill);
+    expect("destroying a chest, which is not a monster",
+           message("You have destroyed the chest."), Color::Warning);
 
-    resetPlayer();
-    py.misc.exp = 25;  // something died
-    expect("a message printed as experience is gained",
-           message("The kobold dies in a fit of agony."), Color::Kill);
-
-    resetPlayer();
+    // Amiga.doc: green for a hit, which is not the light green of healthy
+    // vitals. Both exist in the palette and they are different colours.
     expect("a hit that did not kill", message("You hit the kobold."),
-           Color::Success);
-    resetPlayer();
+           Color::Good);
+    expect("a great hit", message("It was a *GREAT* hit! (x5 damage)"),
+           Color::Good);
+    expect("a trap, which is not a hit", message("You hit a teleport trap!"),
+           Color::Danger);
     expect("a miss", message("You miss the kobold."), Color::Warning);
-    resetPlayer();
     expect("ordinary information", message("You have 3 Rations of Food (e)."),
            Color::Normal);
 
     // --- Update.doc: the "-more-" prompt is deliberately not colour coded,
     // "thus not to spoil the surprise of a monster-kill".
-    resetPlayer();
-    py.misc.exp = 99;
-    expect("the -more- prompt while a kill is pending", message(" -more-"),
-           Color::Normal);
+    expect("the -more- prompt", message(" -more-"), Color::Normal);
 
     resetPlayer();
     expect("a yes/no prompt", message("Do you want to quit? [y/n]"), Color::Normal);
@@ -226,7 +299,10 @@ int main() {
                moria::gfx::palette_index(Color::Normal) == 1);
     expectTrue("Danger is red", moria::gfx::palette_index(Color::Danger) == 15);
     expectTrue("Warning is yellow", moria::gfx::palette_index(Color::Warning) == 5);
-    expectTrue("Success is light green", moria::gfx::palette_index(Color::Success) == 6);
+    expectTrue("Success is the light green of healthy vitals",
+               moria::gfx::palette_index(Color::Success) == 6);
+    expectTrue("Good is the green of a successful hit, a different colour",
+               moria::gfx::palette_index(Color::Good) == 7);
     expectTrue("Kill is light blue", moria::gfx::palette_index(Color::Kill) == 10);
     expectTrue("StatLoss is dark red", moria::gfx::palette_index(Color::StatLoss) == 13);
     expectTrue("StatGain is blue", moria::gfx::palette_index(Color::StatGain) == 12);
@@ -247,6 +323,7 @@ int main() {
         ++g_failures;
     } else {
         mvaddstr(kCurrentHpRow, 0, "CHP      20");
+        mvaddstr(kMessageRow, 0, "You hit the kobold.");
         refresh();
 
         const char *shot = "colour-test.bmp";
@@ -254,15 +331,30 @@ int main() {
             std::printf("FAIL could not write %s\n", shot);
             ++g_failures;
         } else {
-            const moria::gfx::Rgb red = moria::gfx::rgb(Color::Danger);
-            const int painted = countPixels(shot, kCurrentHpRow, red);
-            expectTrue("the hit point line is actually drawn in red pixels",
-                       painted > 0);
-            std::printf("     %d red pixels on row %d\n", painted, kCurrentHpRow);
+            // Every drawn pixel on the row must be the right colour, not just
+            // one of them: a first-glyph-red, rest-yellow rendering would
+            // otherwise pass.
+            const RowPixels hp = countRow(shot, kCurrentHpRow,
+                                          moria::gfx::rgb(Color::Danger));
+            expectTrue("the hit point line is drawn, at 20% health",
+                       hp.foreground > 0);
+            expectTrue("and every pixel of it is red",
+                       hp.matching == hp.foreground);
+            std::printf("     row %d: %d of %d drawn pixels are red\n",
+                        kCurrentHpRow, hp.matching, hp.foreground);
 
-            const moria::gfx::Rgb white = moria::gfx::rgb(Color::Normal);
-            expectTrue("and not in the normal white",
-                       countPixels(shot, kCurrentHpRow, white) == 0);
+            const RowPixels hit = countRow(shot, kMessageRow,
+                                           moria::gfx::rgb(Color::Good));
+            expectTrue("the hit message is drawn", hit.foreground > 0);
+            expectTrue("and every pixel of it is green, not light green",
+                       hit.matching == hit.foreground);
+            std::printf("     row %d: %d of %d drawn pixels are green\n",
+                        kMessageRow, hit.matching, hit.foreground);
+
+            const RowPixels light = countRow(shot, kMessageRow,
+                                             moria::gfx::rgb(Color::Success));
+            expectTrue("the hit message uses none of the vitals' light green",
+                       light.matching == 0);
         }
         endwin();
     }

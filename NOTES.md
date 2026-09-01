@@ -104,9 +104,11 @@ renders 134 red pixels and no white ones.
 - The three Python tool suites pass: 13 converter tests, 10 font tests, 9
   extractor tests, including every mutation listed below under "caught by".
 
-- `ctest` is 7/7 on Linux, with the browser test enabled via
-  `-DMORIA_WEB_BUILD_DIR`. `tests/golden_screens.json` records screens that
-  were rendered and looked at.
+- `ctest` passes on Linux with every optional test configured in — the
+  browser test needs `-DMORIA_WEB_BUILD_DIR`, and `build-from-clean` needs
+  `-DMORIA_TEST_CLEAN_BUILD=ON`. Both golden files record screens that were
+  rendered and looked at. (Counts are deliberately not quoted here; they go
+  stale the moment a test is added.)
 - Both mutation controls were run and both fail as intended: replacing
   `show_title()` with a no-op reports 13391 differing title pixels, and
   changing `kMapColOffset` from 13 to 14 is caught by the cell check
@@ -143,7 +145,8 @@ plausible, which is why they are tested rather than trusted:
 ## The engine, and where it joins the frontend
 
 `vendored/umoria` is upstream `dungeons-of-moria/umoria` at **5.7.15**, as the
-brief specifies. Vendored 2026-09-01, not yet built or wired to anything.
+brief specifies. Vendored 2026-09-01 and now built and wired: `moria-amiga`
+runs the game on the frontend.
 
 **How it is connected.** Umoria's sources are compiled straight out of the
 submodule, minus two files. `src/engine/main.cpp` replaces its `main()` so the

@@ -22,9 +22,16 @@
 //
 // Henrik implemented this by passing a colour from each engine call site.
 // This port does not: modifying gameplay source is the one thing the project
-// is organised to avoid. So the colour is decided here instead, from the
-// screen position and -- where the documentation is precise about it -- from
-// the game's own state.
+// is organised to avoid. So the colour is decided here instead.
+//
+// The stat block is read from the game's own state, which is exact. The
+// message line cannot be: Umoria prints a message *before* it applies the
+// consequence -- the attack description before the damage, "You feel weaker."
+// before the stat drops, "You have picked the lock." before the experience is
+// awarded -- so at the moment a message is written, nothing has happened yet.
+// Messages are therefore classified from their text, using phrases taken from
+// Umoria's source. That is an approximation of Henrik's per-call-site choice,
+// and phrases it does not know are drawn in white.
 #pragma once
 
 #include "ui.hpp"

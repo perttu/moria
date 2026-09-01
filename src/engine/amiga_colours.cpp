@@ -22,6 +22,10 @@ bool contains(const char *haystack, const char *needle) {
 }
 
 // "0-25% red, 25%-75% yellow, 75%-100% light green, 100% white" -- Amiga.doc.
+//
+// Compared as ratios rather than as an integer percentage: (current * 100) /
+// maximum floors, so 251/1000 would come out as 25 and be drawn red despite
+// being above the boundary.
 ui::Color forVital(int current, int maximum) {
     if (maximum <= 0) {
         return ui::Color::Normal;
@@ -29,12 +33,13 @@ ui::Color forVital(int current, int maximum) {
     if (current >= maximum) {
         return ui::Color::Normal;      // white
     }
-    const int percent = (current * 100) / maximum;
-    if (percent <= 25) {
-        return ui::Color::Danger;      // red
+    const int64_t value = current;
+    const int64_t limit = maximum;
+    if (value * 4 <= limit) {
+        return ui::Color::Danger;      // red, up to and including 25%
     }
-    if (percent <= 75) {
-        return ui::Color::Warning;     // yellow
+    if (value * 4 <= limit * 3) {
+        return ui::Color::Warning;     // yellow, up to and including 75%
     }
     return ui::Color::Success;         // light green
 }
@@ -80,30 +85,6 @@ ui::Color forStatBlock(int row, const char *text) {
     return ui::Color::Normal;
 }
 
-// State as it was when the previous message was printed. Comparing against it
-// is how a stat change or a wound is detected, which is more reliable than
-// reading the message text: the documentation defines these cases by what
-// happened, not by what was said.
-struct Snapshot {
-    bool valid = false;
-    int16_t current_hp = 0;
-    int32_t exp = 0;
-    uint8_t stats[kStatCount] = {0};
-};
-
-Snapshot g_previous;
-
-Snapshot takeSnapshot() {
-    Snapshot snapshot;
-    snapshot.valid = true;
-    snapshot.current_hp = py.misc.current_hp;
-    snapshot.exp = static_cast<int32_t>(py.misc.exp);
-    for (int i = 0; i < kStatCount; ++i) {
-        snapshot.stats[i] = py.stats.current[i];
-    }
-    return snapshot;
-}
-
 bool isPrompt(const char *text) {
     const size_t length = std::strlen(text);
     if (length == 0) {
@@ -119,76 +100,120 @@ bool isPrompt(const char *text) {
     return text[length - 1] == ':';
 }
 
-ui::Color classifyMessageText(const char *text) {
-    // You killed something.
-    for (const char *phrase : {"You have slain", "You have destroyed",
-                               "You have killed", "dies", "die."}) {
-        if (contains(text, phrase)) {
-            return ui::Color::Kill;
-        }
-    }
-    // You succeeded.
-    for (const char *phrase : {"You hit", "great hit", "You have learned",
-                               "You feel better", "You feel much better",
-                               "You are no longer", "You feel less"}) {
-        if (contains(text, phrase)) {
-            return ui::Color::Success;
-        }
-    }
-    // Trouble, or you failed at something.
-    for (const char *phrase : {"You miss", "You failed", "You have no",
-                               "You cannot", "There is nothing", "You are too",
-                               "Nothing happens", "You feel confused",
-                               "You are confused", "You are afraid",
-                               "You are blind", "You are poisoned",
-                               "You are paralysed", "have no room",
-                               "is in your way", "You see nothing"}) {
-        if (contains(text, phrase)) {
-            return ui::Color::Warning;
-        }
-    }
-    return ui::Color::Normal;
-}
+struct Rule {
+    const char *phrase;
+    ui::Color colour;
+};
+
+// Umoria prints the message *before* it applies the consequence:
+// monsterPrintAttackDescription() runs before executeAttackOnPlayer(),
+// "You feel weaker." before playerStatRandomDecrease(), "You have picked the
+// lock." before py.misc.exp++. So the game's state cannot say what a message
+// is about -- at the moment it is written, nothing has happened yet.
+//
+// The colour therefore comes from the message itself, which is also what
+// Henrik was choosing between when he coloured each call site by hand. The
+// phrases below are taken from Umoria's own source, not invented.
+//
+// First match wins, so the order matters: "You hit a teleport trap!" must be
+// read as a trap before it is read as a hit.
+constexpr Rule kRules[] = {
+    // Trouble averted. These read like a stat loss but nothing changed, and
+    // they have to be caught before the loss phrases they contain.
+    {"but it passes", ui::Color::Warning},
+    {"it passes", ui::Color::Warning},
+    {"is sustained", ui::Color::Warning},
+    {"resists the", ui::Color::Warning},
+    {"quickly clears", ui::Color::Warning},
+
+    // Dark red: a characteristic has been reduced.
+    {"You feel weaker", ui::Color::StatLoss},
+    {"You feel weakened", ui::Color::StatLoss},
+    {"You feel more clumsy", ui::Color::StatLoss},
+    {"You feel very naive", ui::Color::StatLoss},
+    {"You feel very sick", ui::Color::StatLoss},
+    {"You feel very sore", ui::Color::StatLoss},
+    {"Your health is damaged", ui::Color::StatLoss},
+    {"You have damaged your health", ui::Color::StatLoss},
+    {"Your wisdom is drained", ui::Color::StatLoss},
+    {"trouble thinking clearly", ui::Color::StatLoss},
+    {"memories fade", ui::Color::StatLoss},
+
+    // Blue: a characteristic has been raised or restored.
+    {"bulging muscles", ui::Color::StatGain},
+    {"You feel more dexterous", ui::Color::StatGain},
+    {"You feel more limber", ui::Color::StatGain},
+    {"You feel more experienced", ui::Color::StatGain},
+    {"You feel less clumsy", ui::Color::StatGain},
+    {"You feel warm all over", ui::Color::StatGain},
+    {"returning", ui::Color::StatGain},
+
+    // Light blue: you killed a monster. The chest is not a monster.
+    {"You have destroyed the chest", ui::Color::Warning},
+    {"You have slain", ui::Color::Kill},
+    {"You have destroyed", ui::Color::Kill},
+    {"dies in a fit of agony", ui::Color::Kill},
+    {"dies", ui::Color::Kill},
+
+    // Red: you are hurt, or something else really bad happens. These are the
+    // verbs from monsterPrintAttackDescription().
+    {"trap!", ui::Color::Danger},
+    {"hits you", ui::Color::Danger},
+    {"bites you", ui::Color::Danger},
+    {"claws you", ui::Color::Danger},
+    {"stings you", ui::Color::Danger},
+    {"touches you", ui::Color::Danger},
+    {"kicks you", ui::Color::Danger},
+    {"gazes at you", ui::Color::Danger},
+    {"breathes on you", ui::Color::Danger},
+    {"spits on you", ui::Color::Danger},
+    {"embraces you", ui::Color::Danger},
+    {"crawls on you", ui::Color::Danger},
+    {"horrible wail", ui::Color::Danger},
+    {"cloud of spores", ui::Color::Danger},
+    {"You die", ui::Color::Danger},
+    {"You are enveloped", ui::Color::Danger},
+
+    // Green: you hit a monster, or succeeded at something.
+    {"You hit", ui::Color::Good},
+    {"good hit", ui::Color::Good},
+    {"excellent hit", ui::Color::Good},
+    {"superb hit", ui::Color::Good},
+    {"GREAT* hit", ui::Color::Good},
+    {"You have picked the lock", ui::Color::Good},
+    {"You have learned", ui::Color::Good},
+    {"You feel better", ui::Color::Good},
+
+    // Yellow: trouble, or you failed to do something.
+    {"You miss", ui::Color::Warning},
+    {"You failed", ui::Color::Warning},
+    {"You have no", ui::Color::Warning},
+    {"You cannot", ui::Color::Warning},
+    {"You are too", ui::Color::Warning},
+    {"There is nothing", ui::Color::Warning},
+    {"Nothing happens", ui::Color::Warning},
+    {"You feel confused", ui::Color::Warning},
+    {"You are confused", ui::Color::Warning},
+    {"You feel terrified", ui::Color::Warning},
+    {"You are afraid", ui::Color::Warning},
+    {"You are blind", ui::Color::Warning},
+    {"You are poisoned", ui::Color::Warning},
+    {"You are paralysed", ui::Color::Warning},
+    {"have no room", ui::Color::Warning},
+    {"is in your way", ui::Color::Warning},
+    {"You see nothing", ui::Color::Warning},
+};
 
 ui::Color forMessage(const char *text) {
     if (isPrompt(text)) {
         return ui::Color::Normal;
     }
-
-    const Snapshot now = takeSnapshot();
-    const Snapshot before = g_previous;
-    g_previous = now;
-
-    if (!game.character_generated) {
-        // Character creation prints plenty of text through the message line
-        // before there is any state worth comparing.
-        return classifyMessageText(text);
-    }
-
-    if (before.valid) {
-        // A stat moved. Dark red down, blue up -- the two cases Amiga.doc
-        // singles out as most worth noticing.
-        for (int i = 0; i < kStatCount; ++i) {
-            if (now.stats[i] < before.stats[i]) {
-                return ui::Color::StatLoss;
-            }
-        }
-        for (int i = 0; i < kStatCount; ++i) {
-            if (now.stats[i] > before.stats[i]) {
-                return ui::Color::StatGain;
-            }
-        }
-        // Experience went up without a stat change: something died.
-        if (now.exp > before.exp) {
-            return ui::Color::Kill;
-        }
-        // You are hurt.
-        if (now.current_hp < before.current_hp) {
-            return ui::Color::Danger;
+    for (const Rule &rule : kRules) {
+        if (contains(text, rule.phrase)) {
+            return rule.colour;
         }
     }
-
-    return classifyMessageText(text);
+    return ui::Color::Normal;
 }
 
 }  // namespace
