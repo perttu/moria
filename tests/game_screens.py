@@ -46,19 +46,32 @@ STATS = "am\\e"
 SHEET = "am\\eaFenwick\\n"
 TOWN = "am\\eaFenwick\\n "
 
+OVERVIEW = TOWN + "M"
+
+# Wizard mode, so a dungeon level can be reached without playing down to it:
+# a space and a 'y' accept its warning, then ^D jumps to level 5.
+DUNGEON = " yam\\eaFenwick\\n \\cD5\\n"
+
 SCREENS = {
-    "creation": CREATION,
-    "character-sheet": SHEET,
-    "town": TOWN,
+    "creation": (CREATION, ()),
+    "character-sheet": (SHEET, ()),
+    "town": (TOWN, ()),
+    "overview": (OVERVIEW, ()),
+    "dungeon": (DUNGEON, ("-w",)),
 }
+
+# Henrik's reduced map: two pixels per dungeon cell, at this pixel origin.
+OVERVIEW_X = 122
+OVERVIEW_Y = 34
+OVERVIEW_CELL = 2
 
 
 class Failure(Exception):
     pass
 
 
-def render(binary, keys, out_path):
-    command = [binary, "--headless", "-n", "-s", SEED,
+def render(binary, keys, out_path, extra=()):
+    command = [binary, "--headless", "-n", "-s", SEED, *extra,
                "--keys", keys, "--screenshot", out_path]
     result = subprocess.run(command, capture_output=True, text=True,
                             timeout=120, cwd=os.path.dirname(binary) or ".")
@@ -121,6 +134,116 @@ def check_viewport_uses_tiles(rows, assets_dir, report):
     report("ok   all %d drawn viewport cells come from the tile atlas" % total)
 
 
+def small_atlas_cells(assets_dir):
+    """Every 2x2 cell of moria_gfxsmall.iff, as raw RGB blocks."""
+    with open(os.path.join(assets_dir, "moria_gfxsmall.iff"), "rb") as fh:
+        image = iff_convert.parse_ilbm(fh.read())
+    rgba = image.rgba(opaque=True)
+    rows = []
+    for y in range(image.height):
+        start = y * image.width * 4
+        row = rgba[start:start + image.width * 4]
+        rows.append(bytes(b for i in range(0, len(row), 4) for b in row[i:i + 3]))
+
+    cells = set()
+    for tile_y in range(image.height // OVERVIEW_CELL):
+        for tile_x in range(image.width // OVERVIEW_CELL):
+            block = b"".join(
+                rows[tile_y * OVERVIEW_CELL + line][
+                    tile_x * OVERVIEW_CELL * 3:(tile_x * OVERVIEW_CELL + OVERVIEW_CELL) * 3]
+                for line in range(OVERVIEW_CELL))
+            cells.add(block)
+    return cells
+
+
+def check_overview_uses_small_atlas(rows, assets_dir, report):
+    """The reduced map must come from moria_gfxsmall.iff, not from shrinking.
+
+    Umoria's own reduced map is text; Henrik's is a second atlas at two pixels
+    per dungeon cell. If the substitution ever stopped happening, the screen
+    would still show a plausible map -- made of letters.
+    """
+    cells = small_atlas_cells(assets_dir)
+
+    drawn = 0
+    matched = 0
+    for map_y in range(MAP_ROWS * 3):
+        for map_x in range(MAP_COLS * 3):
+            x = OVERVIEW_X + map_x * OVERVIEW_CELL
+            y = OVERVIEW_Y + map_y * OVERVIEW_CELL
+            if x + OVERVIEW_CELL > SCREEN_WIDTH or y + OVERVIEW_CELL > SCREEN_HEIGHT:
+                continue
+            block = b"".join(rows[y + line][x * 3:(x + OVERVIEW_CELL) * 3]
+                             for line in range(OVERVIEW_CELL))
+            if block == bytes(OVERVIEW_CELL * OVERVIEW_CELL * 3):
+                continue
+            drawn += 1
+            if block in cells:
+                matched += 1
+
+    if drawn == 0:
+        raise Failure("the reduced map drew nothing at (%d, %d)"
+                      % (OVERVIEW_X, OVERVIEW_Y))
+    if matched != drawn:
+        raise Failure("%d of %d drawn overview cells are not from "
+                      "moria_gfxsmall.iff" % (drawn - matched, drawn))
+    report("ok   all %d drawn overview cells come from the small atlas, at "
+           "(%d, %d)" % (drawn, OVERVIEW_X, OVERVIEW_Y))
+
+
+def check_save_and_reload(binary, workdir, town_rows, report):
+    """Create a character, save and quit, then load the save back.
+
+    The stat block is compared pixel for pixel against the same character
+    before saving. A save that loses the character, or loads a different one,
+    changes those columns.
+    """
+    save_path = os.path.join(os.path.abspath(workdir), "roundtrip.sav")
+    if os.path.exists(save_path):
+        os.remove(save_path)
+
+    # ^X saves and exits, so this run ends on its own.
+    written = subprocess.run(
+        # Two keys clear the pending help message, then ^X saves and exits;
+        # the trailing key acknowledges its own "-more-". The screenshot path
+        # is a safety net: without it a script that runs out would block on a
+        # keypress nobody can make.
+        [binary, "--headless", "-n", "-s", SEED,
+         "--keys", TOWN + " \\cX ",
+         "--screenshot", os.path.join(os.path.abspath(workdir), "saving.bmp"),
+         save_path],
+        capture_output=True, text=True, timeout=120,
+        cwd=os.path.dirname(binary) or ".")
+    if not os.path.exists(save_path):
+        raise Failure("saving wrote no file\n--- stdout ---\n%s\n--- stderr ---\n%s"
+                      % (written.stdout.strip(), written.stderr.strip()))
+    report("ok   ^X saved the game to %s (%d bytes)"
+           % (os.path.basename(save_path), os.path.getsize(save_path)))
+
+    reloaded = os.path.join(os.path.abspath(workdir), "reloaded.bmp")
+    result = subprocess.run(
+        [binary, "--headless", "-s", SEED, "--keys", "  ",
+         "--screenshot", reloaded, save_path],
+        capture_output=True, text=True, timeout=120,
+        cwd=os.path.dirname(binary) or ".")
+    if not os.path.exists(reloaded):
+        raise Failure("loading the save produced no screen\n--- stdout ---\n%s\n"
+                      "--- stderr ---\n%s" % (result.stdout.strip(),
+                                              result.stderr.strip()))
+    _w, _h, rows = read_bmp(reloaded)
+
+    # Columns 0..12 are the stat block; the dungeon starts at column 13.
+    stat_width = MAP_COL_OFFSET * CELL * 3
+    differing = 0
+    for y in range(CELL, SCREEN_HEIGHT):
+        if rows[y][:stat_width] != town_rows[y][:stat_width]:
+            differing += 1
+    if differing:
+        raise Failure("the reloaded character's stat block differs from the "
+                      "saved one on %d scanlines" % differing)
+    report("ok   the reloaded character is pixel-identical in the stat block")
+
+
 def check_goldens(digests, golden_path, update, report):
     if update:
         with open(golden_path, "w") as fh:
@@ -167,17 +290,20 @@ def main(argv=None):
 
         rendered = {}
         digests = {}
-        for name, keys in SCREENS.items():
+        for name, (keys, extra) in SCREENS.items():
             path = os.path.join(os.path.abspath(args.workdir), "%s.bmp" % name)
-            rendered[name] = render(binary, keys, path)
+            rendered[name] = render(binary, keys, path, extra)
             digests[name] = digest(rendered[name])
         report("ok   the game runs through character creation into the town")
 
         check_viewport_uses_tiles(rendered["town"], args.assets, report)
+        check_viewport_uses_tiles(rendered["dungeon"], args.assets, report)
+        check_overview_uses_small_atlas(rendered["overview"], args.assets, report)
+        check_save_and_reload(binary, args.workdir, rendered["town"], report)
 
         # Determinism: the same seed and the same keys must produce the same
         # screen, or the goldens are meaningless.
-        again = render(binary, SCREENS["town"],
+        again = render(binary, SCREENS["town"][0],
                        os.path.join(os.path.abspath(args.workdir), "town-again.bmp"))
         if digest(again) != digests["town"]:
             raise Failure("two runs with the same seed produced different "

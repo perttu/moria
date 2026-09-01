@@ -6,6 +6,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -17,6 +18,13 @@ bool g_running = false;
 bool g_dirty = true;
 moria::ui::Color g_colour = moria::ui::Color::Normal;
 moria::ui::Options g_options;
+
+struct OverviewCell {
+    int x;
+    int y;
+    unsigned char code;
+};
+std::vector<OverviewCell> g_overview;
 
 std::string g_script;
 std::string g_script_screenshot;
@@ -185,6 +193,7 @@ int clear() {
     }
     stdscr->cursor_row = 0;
     stdscr->cursor_col = 0;
+    g_overview.clear();
     g_dirty = true;
     return OK;
 }
@@ -210,6 +219,12 @@ int refresh() {
             }
         }
     }
+
+    // The reduced map sits on top, on its own two-pixel lattice.
+    for (const OverviewCell &cell : g_overview) {
+        moria::ui::overview_tile(cell.x, cell.y, cell.code);
+    }
+
     moria::ui::present();
     g_dirty = false;
     return OK;
@@ -244,6 +259,11 @@ namespace moria::engine {
 
 void putTile(int row, int col, unsigned char display_code) {
     write_cell(row, col, display_code, true);
+}
+
+void putOverviewTile(int map_x, int map_y, unsigned char display_code) {
+    g_overview.push_back(OverviewCell{map_x, map_y, display_code});
+    g_dirty = true;
 }
 
 void setFrontendOptions(const ui::Options &options) {

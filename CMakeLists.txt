@@ -261,8 +261,9 @@ if(EMSCRIPTEN)
 elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
     file(GLOB MORIA_UMORIA_SOURCES CONFIGURE_DEPENDS "${MORIA_UMORIA_DIR}/src/*.cpp")
     list(REMOVE_ITEM MORIA_UMORIA_SOURCES
-        "${MORIA_UMORIA_DIR}/src/main.cpp"     # replaced by src/engine/main.cpp
-        "${MORIA_UMORIA_DIR}/src/ui_io.cpp")   # replaced by the patched copy
+        "${MORIA_UMORIA_DIR}/src/main.cpp"      # replaced by src/engine/main.cpp
+        "${MORIA_UMORIA_DIR}/src/ui_io.cpp"     # replaced by the patched copy
+        "${MORIA_UMORIA_DIR}/src/dungeon.cpp")  # replaced by the patched copy
 
     # Henrik's extended display codes, recovered from the 1.1 data tables and
     # keyed by the names modern Umoria still uses. The counts are asserted
@@ -287,13 +288,15 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
 
     add_custom_command(
         OUTPUT "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+               "${MORIA_GENERATED_DIR}/dungeon.amiga.cpp"
         COMMAND "${Python3_EXECUTABLE}"
-                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_ui_io.py"
-                "${MORIA_UMORIA_DIR}/src/ui_io.cpp"
-                --out "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_umoria.py"
+                --src "${MORIA_UMORIA_DIR}/src"
+                --out "${MORIA_GENERATED_DIR}"
         DEPENDS "${MORIA_UMORIA_DIR}/src/ui_io.cpp"
-                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_ui_io.py"
-        COMMENT "Retargeting Umoria's terminal layer at the Amiga frontend"
+                "${MORIA_UMORIA_DIR}/src/dungeon.cpp"
+                "${CMAKE_CURRENT_SOURCE_DIR}/tools/patch_umoria.py"
+        COMMENT "Retargeting Umoria's display code at the Amiga frontend"
         VERBATIM)
 
     # Everything but the entry point, so tests can link the game's state and
@@ -301,7 +304,9 @@ elseif(EXISTS "${MORIA_UMORIA_DIR}/src/ui_io.cpp")
     add_library(moria-engine STATIC
         ${MORIA_UMORIA_SOURCES}
         "${MORIA_GENERATED_DIR}/ui_io.amiga.cpp"
+        "${MORIA_GENERATED_DIR}/dungeon.amiga.cpp"
         src/engine/amiga_colours.cpp
+        src/engine/amiga_overview.cpp
         src/engine/amiga_curses.cpp
         src/engine/amiga_sprites.cpp
         "${MORIA_GENERATED_DIR}/amiga_codes.generated.hpp")

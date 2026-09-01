@@ -65,6 +65,11 @@ std::string unescape(const char *text) {
             case 'r': out += '\r'; break;
             case 't': out += '\t'; break;
             case '\\': out += '\\'; break;
+            case 'c':  // \cD is Ctrl-D, which is how wizard commands arrive
+                if (p[1] != '\0') {
+                    out += static_cast<char>(*++p & 0x1F);
+                }
+                break;
             default: out += '\\'; out += *p; break;
         }
     }

@@ -82,6 +82,11 @@ namespace moria::engine {
 // so it is routed to the tile atlas rather than to the font.
 void putTile(int row, int col, unsigned char display_code);
 
+// The reduced 1:4 overview. These cells are not on the character grid -- they
+// are two pixels square, off the 8-pixel lattice entirely -- so they are kept
+// as their own layer and drawn over the text. clearScreen() discards them.
+void putOverviewTile(int map_x, int map_y, unsigned char display_code);
+
 // Window scale, fullscreen and headless mode, applied when initscr() opens
 // the display. Umoria's own startup path calls initscr() with no arguments,
 // so these are set beforehand from the command line.
