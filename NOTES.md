@@ -101,6 +101,33 @@ saves, shows the high scores, and stops. In the browser it then parks with
 "you can close this tab" rather than exiting. Reloading the page resumes from
 the save.
 
+## Score history
+
+Every finished game is recorded, so there is a history of play. A save-and-quit
+counts: Umoria scores it as `(saved)`.
+
+The obvious route was to parse Umoria's `scores.dat`. I started there and
+stopped: the file is a running-XOR chain written field by field, my first two
+attempts at the layout produced plausible nonsense (a 74-byte record where the
+field list says 73, and names appearing three bytes off), and any such parser
+would break the moment upstream changed a field.
+
+So the game reports the score instead, at the point `recordNewHighScore()`
+builds it — a fifth substitution in `tools/patch_umoria.py`, calling
+`moria::engine::reportScore()` with the fields already in hand. No parsing, no
+cipher, and it cannot drift. Umoria's own `scores.dat` is still written
+underneath, untouched.
+
+- **Browser**: POSTed as JSON to the server that served the page, so there is
+  nothing to configure and no CORS. `tools/serve.py` is `http.server` plus
+  `GET`/`POST /scores`, appending to a JSON-lines file.
+- **Native**: appended to `scores.jsonl` beside the binary.
+
+The server treats its input as hostile, because it is: a WebAssembly game can
+be edited in devtools, so unknown fields are dropped, types are coerced, text
+is bounded, and oversized bodies are refused. It is a personal history, not an
+authenticated leaderboard — anyone who can reach the port can post to it.
+
 ## The browser page
 
 Emscripten's default shell is a logo and a text area around a canvas. It is

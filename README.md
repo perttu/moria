@@ -99,18 +99,25 @@ cmake -S . -B build-universal -G Ninja -DCMAKE_BUILD_TYPE=Release \
 emcmake cmake -S . -B build-web -DCMAKE_BUILD_TYPE=Release \
     -DMORIA_HISTORICAL_DIR=... -DMORIA_ASSET_DIR=...
 cmake --build build-web
-cd build-web && python3 -m http.server 8000
+python3 tools/serve.py --dir build-web --port 8080
 ```
 
-Then open `http://localhost:8000/moria-amiga.html` for the game, or
-`amiga-gfx-test.html` for the frontend demo. Opening the file directly will
+Then open `http://localhost:8080/moria-amiga.html` for the game, or
+`amiga-gfx-test.html` for the frontend demo. `tools/serve.py` is
+`http.server` plus a score history; a plain `python3 -m http.server` also
+works, you just get no **Scores** tab. Opening the file directly will
 not work: browsers refuse `.wasm` over `file://`.
 
-The game page has three tabs — the game itself, a searchable **command
-reference**, and a **races and classes** table. Both reference panels are
+The game page has four tabs — the game itself, a searchable **command
+reference**, a **races and classes** table, and **Scores**. The two reference panels are
 generated at build time from Umoria's own `data/help.txt`, `data/rl_help.txt`
 and `data_player.cpp`, so they cannot drift from the game. They are linkable:
-`#commands` and `#character`.
+`#commands`, `#character` and `#scores`.
+
+Every finished game is recorded — including a save-and-quit, which Moria
+scores as `(saved)`. In the browser it is POSTed to the server that served the
+page; natively it is appended to `scores.jsonl` beside the binary. Umoria's
+own `scores.dat` is still written exactly as before; this is an addition.
 
 ## Running
 
@@ -146,6 +153,7 @@ goal is that the pixels do not move.
 | `smoke-start` | the binary comes up: `--help` exits zero, a bad argument does not, all four screens render at 640×200, `--scale 3` leaves the virtual screen alone, and it starts against a real X server rather than only the dummy driver |
 | `web-smoke` | the WebAssembly build in headless Chrome: the canvas draws the title pixel-identically to `moria_title.iff`, Space reaches the game through the browser event path, the dungeon screen is byte-identical to the native render, the real game reaches character creation, a save is written to browser storage and read back, and a save planted in storage is restored and resumed |
 | `keys` | every command character a player needs, including `*`, `?` and the `>` / `<` stair keys |
+| `tool-serve` | the score server: a posted game comes back, best first; junk types, unknown fields, malformed JSON and oversized bodies are refused; a torn last line costs only itself |
 | `tool-web-help` | the browser page's reference panels, against values that can be confirmed by reading the game: a Half-Troll gets 12 hit points, a Dwarf cannot be a Mage |
 | `game-screens` | the real game, driven with a fixed seed through character creation into the town: the screens match reviewed goldens, two runs agree, and **every drawn cell of the viewport is a tile from the atlas rather than a character from the font** |
 | `colours` | every colour rule quoted from Amiga.doc and Update.doc, then a render through the real shim: at 20% health the hit point line comes out red, not white |
