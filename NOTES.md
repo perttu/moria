@@ -7,32 +7,58 @@ gameplay.** No emulation; `amiga.c` is the specification, never compiled.
 
 Build and run instructions live in README.md.
 
-## Now
+## Where this actually is
 
-Milestone 1 (asset viewer) through milestone 3 (static Amiga screen) are done
-and verified on Linux, as `amiga-gfx-test`.
+**Milestones 1-3 of 14. There is no game here yet.**
 
-- [x] Verify the toolchain and SDL's Linux dependencies on this host
-- [x] Vendor SDL3 as a submodule (`vendored/SDL`)
-- [x] `tools/iff_convert.py` — ILBM decoder to PNG and to embeddable RGBA
-- [x] `tools/gen_gfx_corr.py` — extract GFX_CORR from `amiga_corrlist.c`
-- [x] `tools/gen_font.py` — 8x8 font header (placeholder; see below)
-- [x] Narrow display API (`src/frontend/ui.hpp`), no SDL above it
-- [x] SDL3 frontend: 640x200 render target, nearest neighbour, 3.2:1 letterbox
-- [x] `amiga-gfx-test` with title / tiles / dungeon / overview screens
-- [x] Keyboard: arrows and numpad to Moria direction digits, modifiers carried
-- [x] Linux build works without the full X11 -dev set (missing extensions are
-      probed and switched off, with the `apt install` line printed)
-- [x] Tests: GFX_CORR assertions and four headless 640x200 screenshots
-- [x] Emscripten build — compiles, and verified running in headless Chrome
-- [x] Review round 1: replace exit-code screenshot tests with pixel
-      comparisons; decode ILBM transparency; harden the generators
-- [x] Build-and-start tests: `smoke-start` on every ctest run, plus an opt-in
-      `build-from-clean` that configures and compiles from nothing
-- [x] `web-smoke`: the browser build in headless Chrome, compared against both
-      the original artwork and the native render
+The brief's first implementation target is finished: `amiga-gfx-test`, the
+frontend proved out against the real artwork with nothing behind it. That
+answers "can we reproduce Henrik's frontend?" — yes, on Linux and in the
+browser. It does not touch the second question, "can Umoria drive that
+frontend?", because **no Umoria is vendored in this repository at all.**
+
+Everything the game does — walking, monsters, items, stores, saving — is
+absent. The dungeon on screen is a hard-coded stand-in in
+`src/tools/gfx_test_main.cpp`, and the stats beside it are invented strings.
+
+| # | milestone | state |
+| --- | --- | --- |
+| 1 | asset viewer | done |
+| 2 | tile atlas viewer | done |
+| 3 | static Amiga screen | done |
+| 4 | keyboard frontend | keys map to Moria codes, but into the stand-in |
+| 5 | playable town | not started |
+| 6 | playable dungeon | not started |
+| 7 | special graphics | table extracted; nothing assigns codes to monsters |
+| 8 | overview map | draws a fake level |
+| 9 | full Amiga UI | fake stats, no message system |
+| 10 | save/load | not started |
+| 11 | macOS .app | blocked: no Mac here |
+| 12 | Emscripten | done, verified in headless Chrome |
+| 13 | IndexedDB saves | not started |
+| 14 | pixel regression tests | done |
+
+Milestones 5-10 and 13 all wait on the same thing: an engine wired to
+`ui.hpp`.
+
+### Done so far
+
+- SDL3 vendored; frontend, display API, 640x200 virtual screen, letterboxing
+- `tools/iff_convert.py`, `tools/gen_gfx_corr.py`, `tools/gen_font.py`
+- Linux build works without the full X11 -dev set
+- Emscripten build, running and pixel-checked in headless Chrome
+- Test suite: `gfx-corr`, `pixel-screens`, `smoke-start`, `web-smoke`, the
+  three tool suites, and an opt-in `build-from-clean`
+
+### Next
+
+- [ ] Vendor modern Umoria (the brief names `dungeons-of-moria/umoria`)
+- [ ] Survey its display layer and map every terminal operation onto `ui.hpp`
+- [ ] Milestone 4: real keys into the real engine
+- [ ] Milestones 5-6: playable town, then dungeon
+- [ ] Milestone 7: assign Henrik's extended display codes at the presentation
+      layer, from monster identity — never by touching monster data
 - [ ] macOS build and `.app` bundle — needs the owner's Mac
-- [ ] Milestone 4 onward: connect the frontend to Umoria
 
 ### Verified, and how
 
@@ -83,6 +109,36 @@ plausible, which is why they are tested rather than trusted:
 - an explicit GFX_CORR mapping dropped or altered
 - an 8x16 font substituted for the 8x8 one, or a font truncated by one byte
 - ILBM transparency discarded (both tile atlases are masking mode 2)
+
+## The engine, and where it joins the frontend
+
+`vendored/umoria` is upstream `dungeons-of-moria/umoria` at **5.7.15**, as the
+brief specifies. Vendored 2026-09-01, not yet built or wired to anything.
+
+Survey of what connecting it involves:
+
+- **The terminal seam is narrow and already isolated.** Curses appears in only
+  three files: `src/ui_io.cpp`, `src/curses.h`, and one use in
+  `src/spells.cpp`. Everything else goes through about thirty functions
+  declared at the top of `src/ui.h` — `putString`, `addChar`, `panelPutTile`,
+  `getKeyInput`, `clearScreen`, `moveCursor` and friends. Reimplementing those
+  against `ui.hpp` is the whole of milestone 4, and no gameplay file needs to
+  change.
+- **`panelPutTile(char ch, Coord_t coord)` is the hook for `ui::tile`.** It is
+  how the dungeon map draws one cell, which is exactly where Henrik's
+  `putgfx()` sat.
+- **The geometry already matches.** `src/dungeon.h` has
+  `SCREEN_HEIGHT = 22`, `SCREEN_WIDTH = 66` — the same 66x22 panel as Henrik's
+  `screen[66][22]`. No viewport rework needed; only the origin offset
+  (column 13, row 1) has to be applied when mapping panel coordinates to the
+  640x200 screen.
+- The higher-level drawing — `drawDungeonPanel`, the `printCharacter*` stat
+  block — is built on those primitives and should come along unchanged.
+
+Open: 5.7.15 has drifted from the 5.5 the 1.2 assets target. The brief accepts
+that ("modern/original UMoria rules + Henrik presentation + 1.2 assets"), but
+any place where 5.7 changed a display character is a place the GFX_CORR
+mapping could silently miss.
 
 ## Historical inputs
 
@@ -138,8 +194,8 @@ Established from them:
    integers with no named constants. Only index 1 = Normal is confirmed from
    source (`io.c` passes 1 for the uncoloured " -more-"). The rest are
    inferred in `amiga_palette.hpp` and want checking against call sites.
-5. **UMoria base** — upstream `dungeons-of-moria/umoria` 5.7.x restoration, as
-   the brief says, accepting its deltas from the 5.5 the 1.2 assets target?
+5. ~~UMoria base?~~ Answered by the brief itself, which names
+   `dungeons-of-moria/umoria`. Vendored at 5.7.15; no longer an open question.
 6. **Licensing**, before anything is published: Henrik's artwork, the 1.1
    source, and now the placeholder console font. Building privately is fine;
    distribution is not covered by Umoria's GPL relicensing.
