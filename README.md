@@ -124,6 +124,7 @@ goal is that the pixels do not move.
 | test | what it actually checks |
 | --- | --- |
 | `smoke-start` | the binary comes up: `--help` exits zero, a bad argument does not, all four screens render at 640×200, `--scale 3` leaves the virtual screen alone, and it starts against a real X server rather than only the dummy driver |
+| `web-smoke` | the WebAssembly build in headless Chrome: the canvas draws the title pixel-identically to `moria_title.iff`, Space reaches the game through the browser event path, and the resulting dungeon screen is byte-identical to the native render |
 | `gfx-corr` | the tile mapping, the extended codes above 127, and the seed parameters, against values transcribed from the 1992 source |
 | `pixel-screens` | the rendered title against `moria_title.iff` itself; named dungeon cells against the atlas tile that belongs at that screen position; each whole screen against a reviewed golden hash; the X11 render against the headless one |
 | `tool-iff-convert` | ILBM masking modes 0, 1 and 2 survive conversion into both output formats |
@@ -155,6 +156,21 @@ or directly, without CMake:
 ```bash
 python3 tests/build_and_start.py --source . \
     --historical /path/to/1.1/source --assets /path/to/1.2/Moria
+```
+
+`web-smoke` needs an Emscripten build to point at, and a Chrome or Chromium
+binary (it will use one from the Playwright cache if there is no system one):
+
+```bash
+cmake -S . -B build-linux -DMORIA_WEB_BUILD_DIR=$PWD/build-web ...
+ctest --test-dir build-linux -R web-smoke
+```
+
+or directly:
+
+```bash
+python3 tests/web_smoke.py --build-web build-web --assets /path/to/1.2/Moria \
+    --golden tests/golden_screens.json
 ```
 
 ## Layout

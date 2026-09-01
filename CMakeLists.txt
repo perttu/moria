@@ -316,6 +316,23 @@ if(BUILD_TESTING)
         set_tests_properties(build-from-clean PROPERTIES TIMEOUT 1800)
     endif()
 
+    # Does the browser build actually run? Point this at an Emscripten build
+    # directory and the test loads it in headless Chrome, compares the canvas
+    # against moria_title.iff, and presses Space to prove input reaches the
+    # game. It cannot be part of the native build, because the WebAssembly
+    # output comes from a separate emcmake configure.
+    set(MORIA_WEB_BUILD_DIR "" CACHE PATH
+        "An Emscripten build directory, to add the browser smoke test")
+    if(MORIA_WEB_BUILD_DIR)
+        add_test(NAME web-smoke
+                 COMMAND "${Python3_EXECUTABLE}"
+                         "${CMAKE_CURRENT_SOURCE_DIR}/tests/web_smoke.py"
+                         --build-web "${MORIA_WEB_BUILD_DIR}"
+                         --assets "${MORIA_ASSET_DIR}"
+                         --golden "${CMAKE_CURRENT_SOURCE_DIR}/tests/golden_screens.json")
+        set_tests_properties(web-smoke PROPERTIES TIMEOUT 600)
+    endif()
+
     add_test(NAME tool-iff-convert
              COMMAND "${Python3_EXECUTABLE}"
                      "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_iff_convert.py")

@@ -24,11 +24,13 @@ and verified on Linux, as `amiga-gfx-test`.
 - [x] Linux build works without the full X11 -dev set (missing extensions are
       probed and switched off, with the `apt install` line printed)
 - [x] Tests: GFX_CORR assertions and four headless 640x200 screenshots
-- [x] Emscripten build — compiles to html/js/wasm; never seen running
+- [x] Emscripten build — compiles, and verified running in headless Chrome
 - [x] Review round 1: replace exit-code screenshot tests with pixel
       comparisons; decode ILBM transparency; harden the generators
 - [x] Build-and-start tests: `smoke-start` on every ctest run, plus an opt-in
       `build-from-clean` that configures and compiles from nothing
+- [x] `web-smoke`: the browser build in headless Chrome, compared against both
+      the original artwork and the native render
 - [ ] macOS build and `.app` bundle — needs the owner's Mac
 - [ ] Milestone 4 onward: connect the frontend to Umoria
 
@@ -46,7 +48,8 @@ and verified on Linux, as `amiga-gfx-test`.
 - The three Python tool suites pass: 13 converter tests, 10 font tests, 9
   extractor tests, including every mutation listed below under "caught by".
 
-- `ctest` is 6/6 on Linux. `tests/golden_screens.json` records screens that
+- `ctest` is 7/7 on Linux, with the browser test enabled via
+  `-DMORIA_WEB_BUILD_DIR`. `tests/golden_screens.json` records screens that
   were rendered and looked at.
 - Both mutation controls were run and both fail as intended: replacing
   `show_title()` with a no-op reports 13391 differing title pixels, and
@@ -56,11 +59,16 @@ and verified on Linux, as `amiga-gfx-test`.
 - `build-from-clean` passes: `cmake --fresh` into an empty directory,
   through SDL, to a binary that starts.
 
-### Not verified
+- **The browser build runs, and renders the same pixels as the native one.**
+  Headless Chrome loads the WebAssembly build, draws the title
+  pixel-identically to `moria_title.iff`, accepts a Space keypress through the
+  browser event path, and the resulting dungeon screen is byte-identical to
+  the native render. That is the brief's "native and browser differ only in
+  outer platform integration", demonstrated rather than assumed. Earlier
+  attempts failed for tooling reasons only: node has no canvas, and headless
+  Firefox timed out with no output.
 
-- Emscripten: compiles to html/js/wasm and rebuilt cleanly after the browser
-  main loop went in, but node has no canvas and headless Firefox timed out
-  with no output. Never observed running.
+### Not verified
 - macOS: no Mac here. The CMake is conventional but unexercised.
 - No display on this host, so the window has never been seen by a human at a
   real resolution — only Xvfb and the dummy driver.

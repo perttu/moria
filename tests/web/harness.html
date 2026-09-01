@@ -1,0 +1,67 @@
+<!doctype html>
+<!--
+  Test harness for the Emscripten build.
+
+  The shell Emscripten generates is fine for a human, but it wraps the canvas
+  in a logo, buttons and a text area, so a screenshot of the page is not a
+  screenshot of the game. This page is nothing but the canvas at its natural
+  size, which makes the browser's pixels directly comparable to the native
+  ones.
+
+  Query parameters:
+    args=--scale,1   passed straight through to main() as argv
+    keys=Space,m     dispatched as keydown once the runtime is up
+    delay=1500       milliseconds to wait before dispatching
+-->
+<meta charset="utf-8">
+<title>moria web harness</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+<canvas id="canvas" tabindex="1"></canvas>
+<script>
+  const params = new URLSearchParams(location.search);
+  const split = (name) => (params.get(name) || "").split(",").filter(Boolean);
+
+  var Module = {
+    canvas: document.getElementById("canvas"),
+    arguments: split("args"),
+    printErr: (text) => { window.__stderr = (window.__stderr || "") + text + "\n"; },
+    onRuntimeInitialized: () => { window.__ready = true; },
+  };
+
+  // Names map onto KeyboardEvent.code, which is what SDL's Emscripten
+  // backend keys off.
+  const CODES = {
+    Space: { key: " ", keyCode: 32 },
+    Escape: { key: "Escape", keyCode: 27 },
+    KeyM: { key: "m", keyCode: 77 },
+    KeyT: { key: "t", keyCode: 84 },
+    Numpad2: { key: "2", keyCode: 98 },
+    Numpad6: { key: "6", keyCode: 102 },
+  };
+
+  function press(code) {
+    const info = CODES[code] || { key: code, keyCode: 0 };
+    for (const type of ["keydown", "keyup"]) {
+      const event = new KeyboardEvent(type, {
+        code: code, key: info.key, keyCode: info.keyCode, which: info.keyCode,
+        bubbles: true, cancelable: true,
+      });
+      document.dispatchEvent(event);
+    }
+  }
+
+  window.addEventListener("load", () => {
+    const delay = parseInt(params.get("delay") || "1500", 10);
+    setTimeout(() => {
+      for (const code of split("keys")) {
+        press(code);
+      }
+      // Give the main loop a few frames to redraw before the screenshot.
+      setTimeout(() => { document.title = "ready"; }, 400);
+    }, delay);
+  });
+</script>
+<script src="amiga-gfx-test.js"></script>
