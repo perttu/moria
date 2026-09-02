@@ -1,0 +1,291 @@
+<!doctype html>
+<!--
+  The page Moria is played on.
+
+  Emscripten's default shell wraps the canvas in its own logo and controls.
+  This replaces it with the game and two reference panels, because Moria
+  expects you to know forty single-key commands and to have read a manual
+  before picking a race. On the Amiga that was what the printed docs were
+  for; in a browser the reference can just sit next to the game.
+
+  The panels are filled in at build time by tools/gen_web_help.py, from
+  Umoria's own data files, so they cannot drift away from the game.
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Moria — Amiga graphics</title>
+<style>
+  :root {
+    /* Henrik's palette, so the page matches the game. */
+    --ink: #d0c0a0;
+    --dim: #808080;
+    --edge: #303020;
+    --panel: #14140e;
+    --key: #e0b000;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: #000;
+    color: var(--ink);
+    font: 15px/1.5 system-ui, sans-serif;
+  }
+  header {
+    display: flex;
+    align-items: baseline;
+    gap: 1.5rem;
+    padding: 0.6rem 1rem;
+    border-bottom: 1px solid var(--edge);
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 1rem; margin: 0; font-weight: 600; letter-spacing: 0.04em; }
+  h1 small { color: var(--dim); font-weight: 400; margin-left: 0.5rem; }
+  nav { display: flex; gap: 0.25rem; }
+  nav button {
+    background: none;
+    border: 1px solid transparent;
+    border-radius: 3px;
+    color: var(--dim);
+    cursor: pointer;
+    font: inherit;
+    padding: 0.2rem 0.75rem;
+  }
+  nav button:hover { color: var(--ink); }
+  nav button[aria-selected="true"] {
+    color: #000;
+    background: var(--ink);
+    border-color: var(--ink);
+  }
+  main { padding: 1rem; }
+  .panel[hidden] { display: none; }
+
+  /* The canvas is a 640x200 image: never smoothed, never stretched. */
+  #canvas {
+    display: block;
+    background: #000;
+    image-rendering: pixelated;
+    width: min(100%, 1280px);
+    aspect-ratio: 640 / 200;
+    outline: none;
+  }
+  .hint { color: var(--dim); font-size: 0.85rem; margin: 0.6rem 0 0; }
+
+  .columns { columns: 2 22rem; column-gap: 2rem; }
+  section { break-inside: avoid; margin: 0 0 1.5rem; }
+  h3 {
+    font-size: 0.95rem;
+    margin: 0 0 0.4rem;
+    color: var(--key);
+    letter-spacing: 0.04em;
+  }
+  section p { margin: 0 0 0.5rem; color: var(--dim); font-size: 0.85rem; }
+  table.reference { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+  table.reference th {
+    text-align: left;
+    font-weight: 600;
+    color: var(--dim);
+    border-bottom: 1px solid var(--edge);
+    padding: 0.15rem 0.5rem 0.15rem 0;
+  }
+  table.reference td {
+    padding: 0.1rem 0.5rem 0.1rem 0;
+    border-bottom: 1px solid var(--panel);
+    vertical-align: top;
+  }
+  td.key {
+    color: var(--key);
+    font-family: ui-monospace, monospace;
+    white-space: nowrap;
+    padding-right: 1rem;
+  }
+  pre.diagram {
+    color: var(--dim);
+    font-family: ui-monospace, monospace;
+    font-size: 0.8rem;
+    margin: 0.6rem 0 0;
+  }
+  details { margin-top: 0.5rem; }
+  summary { color: var(--dim); cursor: pointer; font-size: 0.85rem; }
+  details p { margin: 0.4rem 0; }
+  #search {
+    background: var(--panel);
+    border: 1px solid var(--edge);
+    border-radius: 3px;
+    color: var(--ink);
+    font: inherit;
+    padding: 0.3rem 0.6rem;
+    width: 16rem;
+    margin-bottom: 1rem;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Moria <small>Amiga graphics, Umoria 5.7.15</small></h1>
+  <nav role="tablist">
+    <button role="tab" data-panel="game" aria-selected="true">Game</button>
+    <button role="tab" data-panel="commands" aria-selected="false">Commands</button>
+    <button role="tab" data-panel="character" aria-selected="false">Races &amp; classes</button>
+    <button role="tab" data-panel="scores" aria-selected="false">Scores</button>
+  </nav>
+</header>
+
+<main>
+  <div class="panel" id="panel-game">
+    <canvas id="canvas" tabindex="1" oncontextmenu="event.preventDefault()"></canvas>
+    <p class="hint">
+      Click the screen first so it takes the keyboard.
+      <strong>?</strong> shows help in-game, <strong>M</strong> the reduced map,
+      <strong>&gt;</strong> and <strong>&lt;</strong> take the stairs.
+      <strong>Ctrl-X</strong> saves and quits — your game is kept in this
+      browser, so reloading resumes it.
+    </p>
+  </div>
+
+  <div class="panel" id="panel-commands" hidden>
+    <input id="search" type="search" placeholder="Filter commands…" autocomplete="off">
+    <div class="columns">
+<!--COMMANDS-->
+    </div>
+  </div>
+
+  <div class="panel" id="panel-character" hidden>
+<!--RACES_AND_CLASSES-->
+  </div>
+
+  <div class="panel" id="panel-scores" hidden>
+    <section>
+      <h3>Games played</h3>
+      <p id="scores-status">Every finished game, newest scores first. A game
+         is recorded when it ends — including when you save and quit.</p>
+      <table class="reference" id="scores-table"></table>
+    </section>
+  </div>
+</main>
+
+<script>
+  // Tabs. The game keeps running while you read; switching back returns the
+  // keyboard to the canvas.
+  const tabs = document.querySelectorAll('nav button');
+  const canvas = document.getElementById('canvas');
+
+  function show(name) {
+    let found = false;
+    tabs.forEach((tab) => {
+      const selected = tab.dataset.panel === name;
+      found = found || selected;
+      tab.setAttribute('aria-selected', String(selected));
+      document.getElementById('panel-' + tab.dataset.panel).hidden = !selected;
+    });
+    if (!found) { show('game'); return; }
+    // preventScroll matters: focusing the canvas otherwise scrolls it into
+    // view, which pushes the header and its tabs off the top of a short
+    // window the moment the page loads.
+    if (name === 'game') { canvas.focus({preventScroll: true}); }
+    if (name === 'scores') { loadScores(); }
+  }
+
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      // Through the hash, so a panel can be linked to and the back button
+      // does what you would expect.
+      location.hash = tab.dataset.panel === 'game' ? '' : tab.dataset.panel;
+      show(tab.dataset.panel);
+    });
+  });
+
+  window.addEventListener('hashchange', () => show(location.hash.slice(1) || 'game'));
+
+  // The score history, from the server the page came from. Loaded when the
+  // tab is opened, and again after it has been away, so a game finished in
+  // another tab shows up.
+  const scoresTable = document.getElementById('scores-table');
+  const scoresStatus = document.getElementById('scores-status');
+
+  function cell(text, className) {
+    const td = document.createElement('td');
+    if (className) { td.className = className; }
+    td.textContent = text;
+    return td;
+  }
+
+  function renderScores(scores) {
+    scoresTable.textContent = '';
+    const header = document.createElement('tr');
+    for (const name of ['#', 'Name', 'Race', 'Class', 'Points', 'Level',
+                        'Depth', 'HP', 'Ended by']) {
+      const th = document.createElement('th');
+      th.textContent = name;
+      header.appendChild(th);
+    }
+    scoresTable.appendChild(header);
+
+    scores.forEach((score, index) => {
+      const row = document.createElement('tr');
+      row.appendChild(cell(String(index + 1)));
+      row.appendChild(cell(score.name || '-', 'key'));
+      row.appendChild(cell(score.race || '-'));
+      row.appendChild(cell(score['class'] || '-'));
+      row.appendChild(cell(String(score.points ?? 0)));
+      row.appendChild(cell(String(score.level ?? 0)));
+      // Moria counts depth in levels of fifty feet.
+      row.appendChild(cell(((score.deepest_depth ?? 0) * 50) + ' ft'));
+      row.appendChild(cell((score.current_hp ?? 0) + '/' + (score.max_hp ?? 0)));
+      row.appendChild(cell(score.died_from || '-'));
+      scoresTable.appendChild(row);
+    });
+  }
+
+  function loadScores() {
+    scoresStatus.textContent = 'Loading…';
+    fetch('scores', {headers: {'Accept': 'application/json'}})
+      .then((response) => {
+        if (!response.ok) { throw new Error('HTTP ' + response.status); }
+        return response.json();
+      })
+      .then((scores) => {
+        if (!scores.length) {
+          scoresStatus.textContent = 'No games recorded yet. Finish one — ' +
+            'Ctrl-X saves and quits, and that counts.';
+          scoresTable.textContent = '';
+          return;
+        }
+        scoresStatus.textContent = scores.length + ' game' +
+          (scores.length === 1 ? '' : 's') + ' recorded, best first.';
+        renderScores(scores);
+      })
+      .catch((error) => {
+        scoresStatus.textContent =
+          'Could not reach the score server (' + error.message + '). ' +
+          'Serve the game with tools/serve.py to keep a history.';
+        scoresTable.textContent = '';
+      });
+  }
+
+  // Filtering the command list, so "door" finds every way to open one.
+  const search = document.getElementById('search');
+  search.addEventListener('input', () => {
+    const needle = search.value.trim().toLowerCase();
+    document.querySelectorAll('#panel-commands tr').forEach((row) => {
+      if (row.querySelector('th')) { return; }
+      row.hidden = needle !== '' && !row.textContent.toLowerCase().includes(needle);
+    });
+  });
+
+  // Opened last, once every panel's helpers exist: show() reaches into the
+  // score panel, and running it earlier would hit those bindings before they
+  // are initialised.
+  show(location.hash.slice(1) || 'game');
+
+  var Module = {
+    canvas: canvas,
+    print: (text) => console.log(text),
+    printErr: (text) => console.error(text),
+  };
+</script>
+{{{ SCRIPT }}}
+</body>
+</html>

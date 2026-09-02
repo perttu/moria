@@ -1,0 +1,134 @@
+<!doctype html>
+<!--
+  Test harness for the Emscripten build.
+
+  The shell Emscripten generates is fine for a human, but it wraps the canvas
+  in a logo, buttons and a text area, so a screenshot of the page is not a
+  screenshot of the game. This page is nothing but the canvas at its natural
+  size, which makes the browser's pixels directly comparable to the native
+  ones.
+
+  Query parameters:
+    app=moria-amiga  which Emscripten build to load (default: amiga-gfx-test)
+    args=--scale,1   passed straight through to main() as argv
+    keys=Space,m     dispatched as keydown once the runtime is up
+    delay=1500       milliseconds to wait before dispatching
+    verify=save      after verifyDelay, read the save back out of the
+                     browser's storage, so persistence can be checked without
+                     needing a second browser session
+    verifyDelay=6000 milliseconds to wait before that check
+    seedSave=NAME    fetch NAME and put it in browser storage before the
+                     module starts, so the loading half of a save round trip
+                     can be checked in one page load
+-->
+<meta charset="utf-8">
+<title>moria web harness</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+  canvas { display: block; image-rendering: pixelated; }
+</style>
+<canvas id="canvas" tabindex="1"></canvas>
+<pre id="log" style="color:#0f0;font:10px monospace"></pre>
+<script>
+  // Mirrored into the DOM so --dump-dom can retrieve it; a headless browser
+  // has nowhere else to put a stack trace.
+  function log(stream, text) {
+    document.getElementById("log").textContent += stream + ": " + text + "\n";
+  }
+  window.onerror = (message) => log("err", "onerror: " + message);
+
+  const params = new URLSearchParams(location.search);
+  const split = (name) => (params.get(name) || "").split(",").filter(Boolean);
+
+  var Module = {
+    canvas: document.getElementById("canvas"),
+    arguments: split("args"),
+    print: (text) => log("out", text),
+    printErr: (text) => log("err", text),
+    onRuntimeInitialized: () => { window.__ready = true; },
+  };
+
+  // Names map onto KeyboardEvent.code, which is what SDL's Emscripten
+  // backend keys off.
+  const CODES = {
+    Space: { key: " ", keyCode: 32 },
+    Escape: { key: "Escape", keyCode: 27 },
+    KeyM: { key: "m", keyCode: 77 },
+    KeyT: { key: "t", keyCode: 84 },
+    Numpad2: { key: "2", keyCode: 98 },
+    Numpad6: { key: "6", keyCode: 102 },
+  };
+
+  function press(code) {
+    const info = CODES[code] || { key: code, keyCode: 0 };
+    for (const type of ["keydown", "keyup"]) {
+      const event = new KeyboardEvent(type, {
+        code: code, key: info.key, keyCode: info.keyCode, which: info.keyCode,
+        bubbles: true, cancelable: true,
+      });
+      document.dispatchEvent(event);
+    }
+  }
+
+  // Reads the save back out of the browser's own storage. This is the only
+  // way to prove a save actually persisted: the in-memory filesystem would
+  // look identical either way.
+  function verifyStoredSave() {
+    try {
+      const stored = localStorage.getItem("moria.save");
+      if (!stored) {
+        log("save", "nothing in local storage");
+        return;
+      }
+      log("save", "read back " + atob(stored).length + " bytes");
+    } catch (e) {
+      log("save", "could not read it back: " + e);
+    }
+  }
+
+  window.addEventListener("load", () => {
+    const delay = parseInt(params.get("delay") || "1500", 10);
+    setTimeout(() => {
+      for (const code of split("keys")) {
+        press(code);
+      }
+      // Give the main loop a few frames to redraw before the screenshot.
+      setTimeout(() => { document.title = "ready"; }, 400);
+      if (params.get("verify") === "save") {
+        setTimeout(verifyStoredSave,
+                   parseInt(params.get("verifyDelay") || "6000", 10));
+      }
+    }, delay);
+  });
+</script>
+<script>
+  // Loaded last, and by name, so the same harness can host either build.
+  const app = params.get("app") || "amiga-gfx-test";
+
+  function startApp() {
+    const tag = document.createElement("script");
+    tag.src = app + ".js";
+    document.body.appendChild(tag);
+  }
+
+  const seed = params.get("seedSave");
+  if (seed) {
+    // Put a save into storage before the module runs, so one page load can
+    // check that the game finds and restores it.
+    fetch(seed).then((response) => response.arrayBuffer()).then((buffer) => {
+      const bytes = new Uint8Array(buffer);
+      let text = "";
+      for (let i = 0; i < bytes.length; i++) {
+        text += String.fromCharCode(bytes[i]);
+      }
+      localStorage.setItem("moria.save", btoa(text));
+      log("seed", "planted a save of " + bytes.length + " bytes");
+      startApp();
+    }).catch((e) => {
+      log("seed", "could not plant a save: " + e);
+      startApp();
+    });
+  } else {
+    startApp();
+  }
+</script>
