@@ -181,7 +181,10 @@
       document.getElementById('panel-' + tab.dataset.panel).hidden = !selected;
     });
     if (!found) { show('game'); return; }
-    if (name === 'game') { canvas.focus(); }
+    // preventScroll matters: focusing the canvas otherwise scrolls it into
+    // view, which pushes the header and its tabs off the top of a short
+    // window the moment the page loads.
+    if (name === 'game') { canvas.focus({preventScroll: true}); }
     if (name === 'scores') { loadScores(); }
   }
 
